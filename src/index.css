@@ -1,0 +1,97 @@
+/* ── Design tokens (light mode) ─────────────────────── */
+:root {
+  --bg:              #f8f7fb;
+  --surface:         #ffffff;
+  --surface-hover:   #faf9fc;
+  --border:          #e8e6ed;
+  --text:            #2d2b35;
+  --text-heading:    #0f0d17;
+  --text-muted:      #8b8799;
+
+  --accent:          #7c3aed;
+  --accent-hover:    #6d28d9;
+  --accent-subtle:   rgba(124, 58, 237, 0.08);
+  --accent-glow:     rgba(124, 58, 237, 0.18);
+
+  --success:         #16a34a;
+  --warning:         #d97706;
+  --danger:          #dc2626;
+  --danger-subtle:   rgba(220, 38, 38, 0.08);
+  --danger-border:   rgba(220, 38, 38, 0.25);
+
+  --sans: system-ui, 'Segoe UI', Roboto, sans-serif;
+
+  font-family: var(--sans);
+  font-size: 16px;
+  line-height: 1.5;
+  color: var(--text);
+  background: var(--bg);
+  color-scheme: light dark;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+/* ── Dark mode ──────────────────────────────────────── */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg:              #0f0e14;
+    --surface:         #18171f;
+    --surface-hover:   #1e1d27;
+    --border:          #2c2a38;
+    --text:            #e2e0ea;
+    --text-heading:    #f5f3ff;
+    --text-muted:      #6b6880;
+
+    --accent:          #a78bfa;
+    --accent-hover:    #c4b5fd;
+    --accent-subtle:   rgba(167, 139, 250, 0.12);
+    --accent-glow:     rgba(167, 139, 250, 0.2);
+
+    --success:         #4ade80;
+    --warning:         #fbbf24;
+    --danger:          #f87171;
+    --danger-subtle:   rgba(248, 113, 113, 0.1);
+    --danger-border:   rgba(248, 113, 113, 0.3);
+  }
+}
+
+/* ── Reset ──────────────────────────────────────────── */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  margin: 0;
+  line-height: 1.2;
+}
+
+p {
+  margin: 0;
+}
+
+ul, ol {
+  margin: 0;
+  padding: 0;
+}
+
+button {
+  cursor: pointer;
+  font-family: inherit;
+}
+
+input {
+  font-family: inherit;
+}
+
+#root {
+  min-height: 100svh;
+  display: flex;
+  flex-direction: column;
+}
