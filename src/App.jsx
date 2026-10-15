@@ -1,6 +1,49 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import './App.css'
 
+/* ── Summary dashboard ──────────────────────────────── */
+function TaskSummary({ total, pending, completed }) {
+  const pct = total === 0 ? 0 : Math.round((completed / total) * 100)
+
+  return (
+    <section className="summary" aria-label="Task summary dashboard">
+      <div className="summary__cards">
+        <div className="summary__card summary__card--total">
+          <span className="summary__card-value">{total}</span>
+          <span className="summary__card-label">Total</span>
+        </div>
+        <div className="summary__card summary__card--pending">
+          <span className="summary__card-value">{pending}</span>
+          <span className="summary__card-label">Pending</span>
+        </div>
+        <div className="summary__card summary__card--completed">
+          <span className="summary__card-value">{completed}</span>
+          <span className="summary__card-label">Completed</span>
+        </div>
+      </div>
+
+      <div className="summary__progress" aria-label={`${pct}% of tasks completed`}>
+        <div className="summary__progress-header">
+          <span className="summary__progress-label">Progress</span>
+          <span className="summary__progress-pct">{pct}%</span>
+        </div>
+        <div
+          className="summary__progress-track"
+          role="progressbar"
+          aria-valuenow={pct}
+          aria-valuemin={0}
+          aria-valuemax={100}
+        >
+          <div
+            className="summary__progress-fill"
+            style={{ width: `${pct}%` }}
+          />
+        </div>
+      </div>
+    </section>
+  )
+}
+
 const FILTERS = ['All', 'Pending', 'Completed']
 const STORAGE_KEY = 'task-tracker-tasks'
 
@@ -124,6 +167,12 @@ function App() {
       </header>
 
       <main className="main">
+        <TaskSummary
+          total={totalCount}
+          pending={pendingCount}
+          completed={completedCount}
+        />
+
         <section className="input-section" aria-label="Add a new task">
           <div className="input-row">
             <input
