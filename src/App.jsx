@@ -82,6 +82,7 @@ function App() {
   const [input, setInput] = useState('')
   const [dueDate, setDueDate] = useState('')
   const [filter, setFilter] = useState('All')
+  const [search, setSearch] = useState('')
   const [editingId, setEditingId] = useState(null)
   const [editText, setEditText] = useState('')
   const [editDueDate, setEditDueDate] = useState('')
@@ -167,8 +168,9 @@ function App() {
   )
 
   const filteredTasks = tasks.filter(task => {
-    if (filter === 'Pending') return !task.completed
-    if (filter === 'Completed') return task.completed
+    if (filter === 'Pending' && task.completed) return false
+    if (filter === 'Completed' && !task.completed) return false
+    if (search.trim() && !task.text.toLowerCase().includes(search.trim().toLowerCase())) return false
     return true
   })
 
@@ -228,12 +230,26 @@ function App() {
           ))}
         </section>
 
+        <section className="search" aria-label="Search tasks">
+          <span className="search__icon" aria-hidden="true">🔍</span>
+          <input
+            className="search__input"
+            type="search"
+            placeholder="Search tasks..."
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            aria-label="Search tasks"
+          />
+        </section>
+
         <section className="task-list-section" aria-label="Task list">
           {filteredTasks.length === 0 ? (
             <div className="empty-state">
               {tasks.length === 0
                 ? 'No tasks yet. Add one above!'
-                : `No ${filter.toLowerCase()} tasks.`}
+                : search.trim()
+                  ? `No tasks match "${search.trim()}".`
+                  : `No ${filter.toLowerCase()} tasks.`}
             </div>
           ) : (
             <ul className="task-list" role="list">
