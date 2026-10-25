@@ -47,6 +47,17 @@ function TaskSummary({ total, pending, completed }) {
 const FILTERS = ['All', 'Pending', 'Completed']
 const STORAGE_KEY = 'task-tracker-tasks'
 
+function getTodayStr() {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
+function formatDate(dateStr) {
+  if (!dateStr) return null
+  const d = new Date(dateStr + 'T00:00:00')
+  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+}
+
 function loadTasks() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
@@ -69,9 +80,11 @@ function App() {
     return loadTasks()
   })
   const [input, setInput] = useState('')
+  const [dueDate, setDueDate] = useState('')
   const [filter, setFilter] = useState('All')
   const [editingId, setEditingId] = useState(null)
   const [editText, setEditText] = useState('')
+  const [editDueDate, setEditDueDate] = useState('')
 
   // useRef for the auto-increment ID so it never causes re-renders
   // and is not stale across closures the way a module-level let would be
@@ -93,10 +106,11 @@ function App() {
     if (!trimmed) return
     setTasks(prev => [
       ...prev,
-      { id: nextId.current++, text: trimmed, completed: false },
+      { id: nextId.current++, text: trimmed, completed: false, dueDate: dueDate || null },
     ])
     setInput('')
-  }, [input])
+    setDueDate('')
+  }, [input, dueDate])
 
   const handleKeyDown = useCallback(
     e => {
@@ -121,6 +135,7 @@ function App() {
   const startEdit = useCallback(task => {
     setEditingId(task.id)
     setEditText(task.text)
+    setEditDueDate(task.dueDate || '')
   }, [])
 
   const saveEdit = useCallback(
@@ -128,17 +143,19 @@ function App() {
       const trimmed = editText.trim()
       if (!trimmed) return
       setTasks(prev =>
-        prev.map(task => (task.id === id ? { ...task, text: trimmed } : task))
+        prev.map(task => (task.id === id ? { ...task, text: trimmed, dueDate: editDueDate || null } : task))
       )
       setEditingId(null)
       setEditText('')
+      setEditDueDate('')
     },
-    [editText]
+    [editText, editDueDate]
   )
 
   const cancelEdit = useCallback(() => {
     setEditingId(null)
     setEditText('')
+    setEditDueDate('')
   }, [])
 
   const handleEditKeyDown = useCallback(
@@ -158,6 +175,7 @@ function App() {
   const totalCount = tasks.length
   const completedCount = tasks.filter(t => t.completed).length
   const pendingCount = totalCount - completedCount
+  const today = getTodayStr()
 
   return (
     <div className="app">
@@ -183,6 +201,13 @@ function App() {
               onChange={e => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
               aria-label="New task"
+            />
+            <input
+              className="task-input task-input--date"
+              type="date"
+              value={dueDate}
+              onChange={e => setDueDate(e.target.value)}
+              aria-label="Task due date"
             />
             <button className="add-btn" onClick={addTask} aria-label="Add task">
               Add
@@ -232,6 +257,13 @@ function App() {
                         aria-label="Edit task title"
                         autoFocus
                       />
+                      <input
+                        className="task-input task-input--inline task-input--date"
+                        type="date"
+                        value={editDueDate}
+                        onChange={e => setEditDueDate(e.target.value)}
+                        aria-label="Edit task due date"
+                      />
                       <div className="task-item__edit-actions">
                         <button
                           className="task-item__save"
@@ -262,7 +294,26 @@ function App() {
                             task.completed ? 'pending' : 'completed'
                           }`}
                         />
-                        <span className="task-item__text">{task.text}</span>
+                        <div className="task-item__content">
+                          <span className="task-item__text">{task.text}</span>
+                          {task.dueDate && (
+                            <div className="task-item__meta">
+                              <span className="task-item__due-date">
+                                {formatDate(task.dueDate)}
+                              </span>
+                              {!task.completed && task.dueDate < today && (
+                                <span className="task-item__badge task-item__badge--overdue">
+                                  Overdue
+                                </span>
+                              )}
+                              {!task.completed && task.dueDate === today && (
+                                <span className="task-item__badge task-item__badge--due-today">
+                                  Due today
+                                </span>
+                              )}
+                            </div>
+                          )}
+                        </div>
                       </label>
                       <button
                         className="task-item__edit"

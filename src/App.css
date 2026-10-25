@@ -486,3 +486,55 @@
     font-size: 1.4rem;
   }
 }
+
+/* ── Date input ─────────────────────────────────────── */
+.task-input--date {
+  flex: 0 0 auto;
+  width: 150px;
+}
+
+@media (max-width: 400px) {
+  .task-input--date {
+    width: 100%;
+  }
+}
+
+/* ── Task due date & status badges ──────────────────── */
+.task-item__content {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.task-item__meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.task-item__due-date {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.task-item__badge {
+  font-size: 0.65rem;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 999px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  line-height: 1.4;
+}
+
+.task-item__badge--overdue {
+  color: var(--danger);
+  background: var(--danger-subtle);
+}
+
+.task-item__badge--due-today {
+  color: var(--warning);
+  background: rgba(217, 119, 6, 0.12);
+}
