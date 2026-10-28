@@ -46,6 +46,13 @@ function TaskSummary({ total, pending, completed }) {
 
 const FILTERS = ['All', 'Pending', 'Completed']
 const PRIORITIES = ['Low', 'Medium', 'High']
+const PRIORITY_WEIGHT = { High: 3, Medium: 2, Low: 1 }
+const SORT_OPTIONS = [
+  { value: 'newest', label: 'Newest first' },
+  { value: 'oldest', label: 'Oldest first' },
+  { value: 'priority', label: 'Priority: High to Low' },
+  { value: 'dueDate', label: 'Due date: Earliest first' },
+]
 const STORAGE_KEY = 'task-tracker-tasks'
 
 function getTodayStr() {
@@ -57,6 +64,33 @@ function formatDate(dateStr) {
   if (!dateStr) return null
   const d = new Date(dateStr + 'T00:00:00')
   return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+}
+
+function sortTasks(tasks, sortBy) {
+  const sorted = [...tasks]
+  switch (sortBy) {
+    case 'oldest':
+      return sorted.sort((a, b) =>
+        (a.createdAt || 0) - (b.createdAt || 0) || a.id - b.id
+      )
+    case 'priority':
+      return sorted.sort(
+        (a, b) =>
+          (PRIORITY_WEIGHT[b.priority] || 2) -
+            (PRIORITY_WEIGHT[a.priority] || 2) || a.id - b.id
+      )
+    case 'dueDate':
+      return sorted.sort((a, b) => {
+        if (!a.dueDate && !b.dueDate) return a.id - b.id
+        if (!a.dueDate) return 1
+        if (!b.dueDate) return -1
+        return a.dueDate < b.dueDate ? -1 : a.dueDate > b.dueDate ? 1 : a.id - b.id
+      })
+    default:
+      return sorted.sort((a, b) =>
+        (b.createdAt || 0) - (a.createdAt || 0) || a.id - b.id
+      )
+  }
 }
 
 function loadTasks() {
@@ -75,6 +109,7 @@ function loadTasks() {
       .map(t => ({
         ...t,
         priority: PRIORITIES.includes(t.priority) ? t.priority : 'Medium',
+        createdAt: typeof t.createdAt === 'number' ? t.createdAt : 0,
       }))
   } catch {
     return []
@@ -90,6 +125,7 @@ function App() {
   const [priority, setPriority] = useState('Medium')
   const [filter, setFilter] = useState('All')
   const [search, setSearch] = useState('')
+  const [sortBy, setSortBy] = useState('newest')
   const [editingId, setEditingId] = useState(null)
   const [editText, setEditText] = useState('')
   const [editDueDate, setEditDueDate] = useState('')
@@ -115,7 +151,7 @@ function App() {
     if (!trimmed) return
     setTasks(prev => [
       ...prev,
-      { id: nextId.current++, text: trimmed, completed: false, dueDate: dueDate || null, priority },
+      { id: nextId.current++, text: trimmed, completed: false, dueDate: dueDate || null, priority, createdAt: Date.now() },
     ])
     setInput('')
     setDueDate('')
@@ -186,6 +222,8 @@ function App() {
     return true
   })
 
+  const sortedTasks = sortTasks(filteredTasks, sortBy)
+
   const totalCount = tasks.length
   const completedCount = tasks.filter(t => t.completed).length
   const pendingCount = totalCount - completedCount
@@ -252,6 +290,20 @@ function App() {
           ))}
         </section>
 
+        <section className="sort" aria-label="Sort tasks">
+          <label className="sort__label" htmlFor="sort-select">Sort by</label>
+          <select
+            id="sort-select"
+            className="sort__select"
+            value={sortBy}
+            onChange={e => setSortBy(e.target.value)}
+          >
+            {SORT_OPTIONS.map(opt => (
+              <option key={opt.value} value={opt.value}>{opt.label}</option>
+            ))}
+          </select>
+        </section>
+
         <section className="search" aria-label="Search tasks">
           <span className="search__icon" aria-hidden="true">🔍</span>
           <input
@@ -265,7 +317,7 @@ function App() {
         </section>
 
         <section className="task-list-section" aria-label="Task list">
-          {filteredTasks.length === 0 ? (
+          {sortedTasks.length === 0 ? (
             <div className="empty-state">
               {tasks.length === 0
                 ? 'No tasks yet. Add one above!'
@@ -275,7 +327,7 @@ function App() {
             </div>
           ) : (
             <ul className="task-list" role="list">
-              {filteredTasks.map(task => (
+              {sortedTasks.map(task => (
                 <li
                   key={task.id}
                   className={`task-item${

@@ -605,3 +605,35 @@
   color: var(--danger);
   background: var(--danger-subtle);
 }
+
+/* ── Sort ───────────────────────────────────────────── */
+.sort {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.sort__label {
+  font-size: 0.825rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.sort__select {
+  flex: 1;
+  padding: 8px 12px;
+  font-size: 0.875rem;
+  font-family: inherit;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  cursor: pointer;
+  outline: none;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.sort__select:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-glow);
+}
