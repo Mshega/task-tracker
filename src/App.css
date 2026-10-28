@@ -575,3 +575,33 @@
   color: var(--text-muted);
   pointer-events: none;
 }
+
+/* ── Priority select ────────────────────────────────── */
+.task-input--select {
+  flex: 0 0 auto;
+  width: auto;
+  min-width: 100px;
+  cursor: pointer;
+}
+
+@media (max-width: 400px) {
+  .task-input--select {
+    width: 100%;
+  }
+}
+
+/* ── Priority badges ────────────────────────────────── */
+.task-item__badge--priority-low {
+  color: var(--accent);
+  background: var(--accent-subtle);
+}
+
+.task-item__badge--priority-medium {
+  color: var(--text-muted);
+  background: var(--bg);
+}
+
+.task-item__badge--priority-high {
+  color: var(--danger);
+  background: var(--danger-subtle);
+}

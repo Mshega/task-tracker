@@ -45,6 +45,7 @@ function TaskSummary({ total, pending, completed }) {
 }
 
 const FILTERS = ['All', 'Pending', 'Completed']
+const PRIORITIES = ['Low', 'Medium', 'High']
 const STORAGE_KEY = 'task-tracker-tasks'
 
 function getTodayStr() {
@@ -64,12 +65,17 @@ function loadTasks() {
     if (!raw) return []
     const parsed = JSON.parse(raw)
     if (!Array.isArray(parsed)) return []
-    return parsed.filter(
-      t =>
-        typeof t.id === 'number' &&
-        typeof t.text === 'string' &&
-        typeof t.completed === 'boolean'
-    )
+    return parsed
+      .filter(
+        t =>
+          typeof t.id === 'number' &&
+          typeof t.text === 'string' &&
+          typeof t.completed === 'boolean'
+      )
+      .map(t => ({
+        ...t,
+        priority: PRIORITIES.includes(t.priority) ? t.priority : 'Medium',
+      }))
   } catch {
     return []
   }
@@ -81,11 +87,13 @@ function App() {
   })
   const [input, setInput] = useState('')
   const [dueDate, setDueDate] = useState('')
+  const [priority, setPriority] = useState('Medium')
   const [filter, setFilter] = useState('All')
   const [search, setSearch] = useState('')
   const [editingId, setEditingId] = useState(null)
   const [editText, setEditText] = useState('')
   const [editDueDate, setEditDueDate] = useState('')
+  const [editPriority, setEditPriority] = useState('Medium')
 
   // useRef for the auto-increment ID so it never causes re-renders
   // and is not stale across closures the way a module-level let would be
@@ -107,11 +115,12 @@ function App() {
     if (!trimmed) return
     setTasks(prev => [
       ...prev,
-      { id: nextId.current++, text: trimmed, completed: false, dueDate: dueDate || null },
+      { id: nextId.current++, text: trimmed, completed: false, dueDate: dueDate || null, priority },
     ])
     setInput('')
     setDueDate('')
-  }, [input, dueDate])
+    setPriority('Medium')
+  }, [input, dueDate, priority])
 
   const handleKeyDown = useCallback(
     e => {
@@ -137,6 +146,7 @@ function App() {
     setEditingId(task.id)
     setEditText(task.text)
     setEditDueDate(task.dueDate || '')
+    setEditPriority(task.priority || 'Medium')
   }, [])
 
   const saveEdit = useCallback(
@@ -144,19 +154,21 @@ function App() {
       const trimmed = editText.trim()
       if (!trimmed) return
       setTasks(prev =>
-        prev.map(task => (task.id === id ? { ...task, text: trimmed, dueDate: editDueDate || null } : task))
+        prev.map(task => (task.id === id ? { ...task, text: trimmed, dueDate: editDueDate || null, priority: editPriority } : task))
       )
       setEditingId(null)
       setEditText('')
       setEditDueDate('')
+      setEditPriority('Medium')
     },
-    [editText, editDueDate]
+    [editText, editDueDate, editPriority]
   )
 
   const cancelEdit = useCallback(() => {
     setEditingId(null)
     setEditText('')
     setEditDueDate('')
+    setEditPriority('Medium')
   }, [])
 
   const handleEditKeyDown = useCallback(
@@ -211,6 +223,16 @@ function App() {
               onChange={e => setDueDate(e.target.value)}
               aria-label="Task due date"
             />
+            <select
+              className="task-input task-input--select"
+              value={priority}
+              onChange={e => setPriority(e.target.value)}
+              aria-label="Task priority"
+            >
+              {PRIORITIES.map(p => (
+                <option key={p} value={p}>{p}</option>
+              ))}
+            </select>
             <button className="add-btn" onClick={addTask} aria-label="Add task">
               Add
             </button>
@@ -280,6 +302,16 @@ function App() {
                         onChange={e => setEditDueDate(e.target.value)}
                         aria-label="Edit task due date"
                       />
+                      <select
+                        className="task-input task-input--inline task-input--select"
+                        value={editPriority}
+                        onChange={e => setEditPriority(e.target.value)}
+                        aria-label="Edit task priority"
+                      >
+                        {PRIORITIES.map(p => (
+                          <option key={p} value={p}>{p}</option>
+                        ))}
+                      </select>
                       <div className="task-item__edit-actions">
                         <button
                           className="task-item__save"
@@ -312,23 +344,26 @@ function App() {
                         />
                         <div className="task-item__content">
                           <span className="task-item__text">{task.text}</span>
-                          {task.dueDate && (
-                            <div className="task-item__meta">
+                          <div className="task-item__meta">
+                            <span className={`task-item__badge task-item__badge--priority-${(task.priority || 'Medium').toLowerCase()}`}>
+                              {task.priority || 'Medium'}
+                            </span>
+                            {task.dueDate && (
                               <span className="task-item__due-date">
                                 {formatDate(task.dueDate)}
                               </span>
-                              {!task.completed && task.dueDate < today && (
-                                <span className="task-item__badge task-item__badge--overdue">
-                                  Overdue
-                                </span>
-                              )}
-                              {!task.completed && task.dueDate === today && (
-                                <span className="task-item__badge task-item__badge--due-today">
-                                  Due today
-                                </span>
-                              )}
-                            </div>
-                          )}
+                            )}
+                            {!task.completed && task.dueDate < today && (
+                              <span className="task-item__badge task-item__badge--overdue">
+                                Overdue
+                              </span>
+                            )}
+                            {!task.completed && task.dueDate === today && (
+                              <span className="task-item__badge task-item__badge--due-today">
+                                Due today
+                              </span>
+                            )}
+                          </div>
                         </div>
                       </label>
                       <button
