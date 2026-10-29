@@ -45,6 +45,7 @@ function TaskSummary({ total, pending, completed }) {
 }
 
 const FILTERS = ['All', 'Pending', 'Completed']
+const CATEGORIES = ['Work', 'Personal', 'Study', 'Other']
 const PRIORITIES = ['Low', 'Medium', 'High']
 const PRIORITY_WEIGHT = { High: 3, Medium: 2, Low: 1 }
 const SORT_OPTIONS = [
@@ -110,6 +111,7 @@ function loadTasks() {
         ...t,
         priority: PRIORITIES.includes(t.priority) ? t.priority : 'Medium',
         createdAt: typeof t.createdAt === 'number' ? t.createdAt : 0,
+        category: CATEGORIES.includes(t.category) ? t.category : 'Other',
       }))
   } catch {
     return []
@@ -123,13 +125,16 @@ function App() {
   const [input, setInput] = useState('')
   const [dueDate, setDueDate] = useState('')
   const [priority, setPriority] = useState('Medium')
+  const [category, setCategory] = useState('Other')
   const [filter, setFilter] = useState('All')
   const [search, setSearch] = useState('')
   const [sortBy, setSortBy] = useState('newest')
+  const [categoryFilter, setCategoryFilter] = useState('All')
   const [editingId, setEditingId] = useState(null)
   const [editText, setEditText] = useState('')
   const [editDueDate, setEditDueDate] = useState('')
   const [editPriority, setEditPriority] = useState('Medium')
+  const [editCategory, setEditCategory] = useState('Other')
 
   // useRef for the auto-increment ID so it never causes re-renders
   // and is not stale across closures the way a module-level let would be
@@ -151,12 +156,13 @@ function App() {
     if (!trimmed) return
     setTasks(prev => [
       ...prev,
-      { id: nextId.current++, text: trimmed, completed: false, dueDate: dueDate || null, priority, createdAt: Date.now() },
+      { id: nextId.current++, text: trimmed, completed: false, dueDate: dueDate || null, priority, category, createdAt: Date.now() },
     ])
     setInput('')
     setDueDate('')
     setPriority('Medium')
-  }, [input, dueDate, priority])
+    setCategory('Other')
+  }, [input, dueDate, priority, category])
 
   const handleKeyDown = useCallback(
     e => {
@@ -183,6 +189,7 @@ function App() {
     setEditText(task.text)
     setEditDueDate(task.dueDate || '')
     setEditPriority(task.priority || 'Medium')
+    setEditCategory(task.category || 'Other')
   }, [])
 
   const saveEdit = useCallback(
@@ -190,14 +197,15 @@ function App() {
       const trimmed = editText.trim()
       if (!trimmed) return
       setTasks(prev =>
-        prev.map(task => (task.id === id ? { ...task, text: trimmed, dueDate: editDueDate || null, priority: editPriority } : task))
+        prev.map(task => (task.id === id ? { ...task, text: trimmed, dueDate: editDueDate || null, priority: editPriority, category: editCategory } : task))
       )
       setEditingId(null)
       setEditText('')
       setEditDueDate('')
       setEditPriority('Medium')
+      setEditCategory('Other')
     },
-    [editText, editDueDate, editPriority]
+    [editText, editDueDate, editPriority, editCategory]
   )
 
   const cancelEdit = useCallback(() => {
@@ -205,6 +213,7 @@ function App() {
     setEditText('')
     setEditDueDate('')
     setEditPriority('Medium')
+    setEditCategory('Other')
   }, [])
 
   const handleEditKeyDown = useCallback(
@@ -218,6 +227,7 @@ function App() {
   const filteredTasks = tasks.filter(task => {
     if (filter === 'Pending' && task.completed) return false
     if (filter === 'Completed' && !task.completed) return false
+    if (categoryFilter !== 'All' && task.category !== categoryFilter) return false
     if (search.trim() && !task.text.toLowerCase().includes(search.trim().toLowerCase())) return false
     return true
   })
@@ -271,6 +281,16 @@ function App() {
                 <option key={p} value={p}>{p}</option>
               ))}
             </select>
+            <select
+              className="task-input task-input--select"
+              value={category}
+              onChange={e => setCategory(e.target.value)}
+              aria-label="Task category"
+            >
+              {CATEGORIES.map(c => (
+                <option key={c} value={c}>{c}</option>
+              ))}
+            </select>
             <button className="add-btn" onClick={addTask} aria-label="Add task">
               Add
             </button>
@@ -288,6 +308,21 @@ function App() {
               {f}
             </button>
           ))}
+        </section>
+
+        <section className="category-filter" aria-label="Filter by category">
+          <label className="category-filter__label" htmlFor="category-select">Category</label>
+          <select
+            id="category-select"
+            className="category-filter__select"
+            value={categoryFilter}
+            onChange={e => setCategoryFilter(e.target.value)}
+          >
+            <option value="All">All categories</option>
+            {CATEGORIES.map(c => (
+              <option key={c} value={c}>{c}</option>
+            ))}
+          </select>
         </section>
 
         <section className="sort" aria-label="Sort tasks">
@@ -323,7 +358,9 @@ function App() {
                 ? 'No tasks yet. Add one above!'
                 : search.trim()
                   ? `No tasks match "${search.trim()}".`
-                  : `No ${filter.toLowerCase()} tasks.`}
+                  : categoryFilter !== 'All'
+                    ? `No ${categoryFilter.toLowerCase()} tasks.`
+                    : `No ${filter.toLowerCase()} tasks.`}
             </div>
           ) : (
             <ul className="task-list" role="list">
@@ -364,6 +401,16 @@ function App() {
                           <option key={p} value={p}>{p}</option>
                         ))}
                       </select>
+                      <select
+                        className="task-input task-input--inline task-input--select"
+                        value={editCategory}
+                        onChange={e => setEditCategory(e.target.value)}
+                        aria-label="Edit task category"
+                      >
+                        {CATEGORIES.map(c => (
+                          <option key={c} value={c}>{c}</option>
+                        ))}
+                      </select>
                       <div className="task-item__edit-actions">
                         <button
                           className="task-item__save"
@@ -399,6 +446,9 @@ function App() {
                           <div className="task-item__meta">
                             <span className={`task-item__badge task-item__badge--priority-${(task.priority || 'Medium').toLowerCase()}`}>
                               {task.priority || 'Medium'}
+                            </span>
+                            <span className={`task-item__badge task-item__badge--category-${(task.category || 'Other').toLowerCase()}`}>
+                              {task.category || 'Other'}
                             </span>
                             {task.dueDate && (
                               <span className="task-item__due-date">
