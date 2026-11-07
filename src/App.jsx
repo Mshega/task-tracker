@@ -112,6 +112,14 @@ function loadTasks() {
         priority: PRIORITIES.includes(t.priority) ? t.priority : 'Medium',
         createdAt: typeof t.createdAt === 'number' ? t.createdAt : 0,
         category: CATEGORIES.includes(t.category) ? t.category : 'Other',
+        subtasks: Array.isArray(t.subtasks)
+          ? t.subtasks.filter(
+              s =>
+                typeof s.id === 'number' &&
+                typeof s.text === 'string' &&
+                typeof s.completed === 'boolean'
+            )
+          : [],
       }))
   } catch {
     return []
@@ -135,14 +143,26 @@ function App() {
   const [editDueDate, setEditDueDate] = useState('')
   const [editPriority, setEditPriority] = useState('Medium')
   const [editCategory, setEditCategory] = useState('Other')
+  const [editSubtasks, setEditSubtasks] = useState([])
+  const [editSubtaskInput, setEditSubtaskInput] = useState('')
+  const [subtaskInput, setSubtaskInput] = useState('')
+  const [newSubtasks, setNewSubtasks] = useState([])
+  const [inlineSubInputs, setInlineSubInputs] = useState({})
 
   // useRef for the auto-increment ID so it never causes re-renders
   // and is not stale across closures the way a module-level let would be
   const nextId = useRef(1)
+  const nextSubId = useRef(1)
   useEffect(() => {
     const saved = loadTasks()
     if (saved.length > 0) {
       nextId.current = Math.max(...saved.map(t => t.id)) + 1
+      const maxSubId = saved.reduce((max, t) => {
+        if (!Array.isArray(t.subtasks)) return max
+        const ids = t.subtasks.map(s => s.id || 0)
+        return Math.max(max, ...ids, 0)
+      }, 0)
+      nextSubId.current = maxSubId + 1
     }
   }, []) // runs once on mount to seed the ref from storage
 
@@ -156,13 +176,31 @@ function App() {
     if (!trimmed) return
     setTasks(prev => [
       ...prev,
-      { id: nextId.current++, text: trimmed, completed: false, dueDate: dueDate || null, priority, category, createdAt: Date.now() },
+      { id: nextId.current++, text: trimmed, completed: false, dueDate: dueDate || null, priority, category, createdAt: Date.now(), subtasks: newSubtasks },
     ])
     setInput('')
     setDueDate('')
     setPriority('Medium')
     setCategory('Other')
-  }, [input, dueDate, priority, category])
+    setNewSubtasks([])
+    setSubtaskInput('')
+  }, [input, dueDate, priority, category, newSubtasks])
+
+  // ── Subtask handlers (add form) ─────────────────────
+  const addNewSubtask = useCallback(() => {
+    const trimmed = subtaskInput.trim()
+    if (!trimmed) return
+    setNewSubtasks(prev => [...prev, { id: nextSubId.current++, text: trimmed, completed: false }])
+    setSubtaskInput('')
+  }, [subtaskInput])
+
+  const deleteNewSubtask = useCallback(id => {
+    setNewSubtasks(prev => prev.filter(s => s.id !== id))
+  }, [])
+
+  const toggleNewSubtask = useCallback(id => {
+    setNewSubtasks(prev => prev.map(s => s.id === id ? { ...s, completed: !s.completed } : s))
+  }, [])
 
   const handleKeyDown = useCallback(
     e => {
@@ -190,6 +228,8 @@ function App() {
     setEditDueDate(task.dueDate || '')
     setEditPriority(task.priority || 'Medium')
     setEditCategory(task.category || 'Other')
+    setEditSubtasks((task.subtasks || []).map(s => ({ ...s })))
+    setEditSubtaskInput('')
   }, [])
 
   const saveEdit = useCallback(
@@ -197,15 +237,17 @@ function App() {
       const trimmed = editText.trim()
       if (!trimmed) return
       setTasks(prev =>
-        prev.map(task => (task.id === id ? { ...task, text: trimmed, dueDate: editDueDate || null, priority: editPriority, category: editCategory } : task))
+        prev.map(task => (task.id === id ? { ...task, text: trimmed, dueDate: editDueDate || null, priority: editPriority, category: editCategory, subtasks: editSubtasks } : task))
       )
       setEditingId(null)
       setEditText('')
       setEditDueDate('')
       setEditPriority('Medium')
       setEditCategory('Other')
+      setEditSubtasks([])
+      setEditSubtaskInput('')
     },
-    [editText, editDueDate, editPriority, editCategory]
+    [editText, editDueDate, editPriority, editCategory, editSubtasks]
   )
 
   const cancelEdit = useCallback(() => {
@@ -214,6 +256,58 @@ function App() {
     setEditDueDate('')
     setEditPriority('Medium')
     setEditCategory('Other')
+    setEditSubtasks([])
+    setEditSubtaskInput('')
+  }, [])
+
+  // ── Subtask handlers (edit form) ────────────────────
+  const addEditSubtask = useCallback(() => {
+    const trimmed = editSubtaskInput.trim()
+    if (!trimmed) return
+    setEditSubtasks(prev => [...prev, { id: nextSubId.current++, text: trimmed, completed: false }])
+    setEditSubtaskInput('')
+  }, [editSubtaskInput])
+
+  const deleteEditSubtask = useCallback(id => {
+    setEditSubtasks(prev => prev.filter(s => s.id !== id))
+  }, [])
+
+  const toggleEditSubtask = useCallback(id => {
+    setEditSubtasks(prev => prev.map(s => s.id === id ? { ...s, completed: !s.completed } : s))
+  }, [])
+
+  // ── Subtask handlers (task list, non-editing) ────────
+  const toggleSubtask = useCallback((taskId, subId) => {
+    setTasks(prev =>
+      prev.map(task =>
+        task.id === taskId
+          ? { ...task, subtasks: (task.subtasks || []).map(s => s.id === subId ? { ...s, completed: !s.completed } : s) }
+          : task
+      )
+    )
+  }, [])
+
+  const addSubtaskToTask = useCallback(taskId => {
+    const text = (inlineSubInputs[taskId] || '').trim()
+    if (!text) return
+    setTasks(prev =>
+      prev.map(task =>
+        task.id === taskId
+          ? { ...task, subtasks: [...(task.subtasks || []), { id: nextSubId.current++, text, completed: false }] }
+          : task
+      )
+    )
+    setInlineSubInputs(prev => ({ ...prev, [taskId]: '' }))
+  }, [inlineSubInputs])
+
+  const deleteSubtaskFromTask = useCallback((taskId, subId) => {
+    setTasks(prev =>
+      prev.map(task =>
+        task.id === taskId
+          ? { ...task, subtasks: (task.subtasks || []).filter(s => s.id !== subId) }
+          : task
+      )
+    )
   }, [])
 
   const handleEditKeyDown = useCallback(
@@ -295,6 +389,33 @@ function App() {
               Add
             </button>
           </div>
+          <div className="subtask-section">
+            <div className="subtask-add-row">
+              <input
+                className="task-input subtask-input"
+                type="text"
+                placeholder="Add a subtask..."
+                value={subtaskInput}
+                onChange={e => setSubtaskInput(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addNewSubtask() } }}
+                aria-label="Add subtask"
+              />
+              <button className="subtask-add-btn" onClick={addNewSubtask} aria-label="Add subtask">+</button>
+            </div>
+            {newSubtasks.length > 0 && (
+              <ul className="subtask-list">
+                {newSubtasks.map(s => (
+                  <li key={s.id} className="subtask">
+                    <label className="subtask__label">
+                      <input type="checkbox" className="subtask__checkbox" checked={s.completed} onChange={() => toggleNewSubtask(s.id)} aria-label={`Mark subtask "${s.text}" as ${s.completed ? 'incomplete' : 'complete'}`} />
+                      <span className={`subtask__text${s.completed ? ' subtask__text--done' : ''}`}>{s.text}</span>
+                    </label>
+                    <button className="subtask__delete" onClick={() => deleteNewSubtask(s.id)} aria-label="Delete subtask">✕</button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
         </section>
 
         <section className="filters" aria-label="Filter tasks">
@@ -374,6 +495,7 @@ function App() {
                   }`}
                 >
                   {editingId === task.id ? (
+                    <>
                     <div className="task-item__edit-row">
                       <input
                         className="task-input task-input--inline"
@@ -429,8 +551,37 @@ function App() {
                         </button>
                       </div>
                     </div>
+                    <div className="subtask-section">
+                      <div className="subtask-add-row">
+                        <input
+                          className="task-input subtask-input"
+                          type="text"
+                          placeholder="Add a subtask..."
+                          value={editSubtaskInput}
+                          onChange={e => setEditSubtaskInput(e.target.value)}
+                          onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addEditSubtask() } }}
+                          aria-label="Add subtask"
+                        />
+                        <button className="subtask-add-btn" onClick={addEditSubtask} aria-label="Add subtask">+</button>
+                      </div>
+                      {editSubtasks.length > 0 && (
+                        <ul className="subtask-list">
+                          {editSubtasks.map(s => (
+                            <li key={s.id} className="subtask">
+                              <label className="subtask__label">
+                                <input type="checkbox" className="subtask__checkbox" checked={s.completed} onChange={() => toggleEditSubtask(s.id)} aria-label={`Mark subtask "${s.text}" as ${s.completed ? 'incomplete' : 'complete'}`} />
+                                <span className={`subtask__text${s.completed ? ' subtask__text--done' : ''}`}>{s.text}</span>
+                              </label>
+                              <button className="subtask__delete" onClick={() => deleteEditSubtask(s.id)} aria-label="Delete subtask">✕</button>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+                    </>
                   ) : (
                     <>
+                      <div className="task-item__main">
                       <label className="task-item__label">
                         <input
                           type="checkbox"
@@ -465,6 +616,11 @@ function App() {
                                 Due today
                               </span>
                             )}
+                            {task.subtasks && task.subtasks.length > 0 && (
+                              <span className="task-item__subtask-count">
+                                {task.subtasks.filter(s => s.completed).length}/{task.subtasks.length} subtasks
+                              </span>
+                            )}
                           </div>
                         </div>
                       </label>
@@ -482,6 +638,37 @@ function App() {
                       >
                         ✕
                       </button>
+                      </div>
+                      {task.subtasks && task.subtasks.length > 0 && (
+                        <div className="task-item__subtasks">
+                          <div className="subtask-progress">
+                            {task.subtasks.filter(s => s.completed).length} of {task.subtasks.length} subtasks completed
+                          </div>
+                          <ul className="subtask-list">
+                            {task.subtasks.map(s => (
+                              <li key={s.id} className="subtask">
+                                <label className="subtask__label">
+                                  <input type="checkbox" className="subtask__checkbox" checked={s.completed} onChange={() => toggleSubtask(task.id, s.id)} aria-label={`Mark subtask "${s.text}" as ${s.completed ? 'incomplete' : 'complete'}`} />
+                                  <span className={`subtask__text${s.completed ? ' subtask__text--done' : ''}`}>{s.text}</span>
+                                </label>
+                                <button className="subtask__delete" onClick={() => deleteSubtaskFromTask(task.id, s.id)} aria-label="Delete subtask">✕</button>
+                              </li>
+                            ))}
+                          </ul>
+                          <div className="subtask-add-row">
+                            <input
+                              className="task-input subtask-input"
+                              type="text"
+                              placeholder="Add a subtask..."
+                              value={inlineSubInputs[task.id] || ''}
+                              onChange={e => setInlineSubInputs(prev => ({ ...prev, [task.id]: e.target.value }))}
+                              onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addSubtaskToTask(task.id) } }}
+                              aria-label="Add subtask"
+                            />
+                            <button className="subtask-add-btn" onClick={() => addSubtaskToTask(task.id)} aria-label="Add subtask">+</button>
+                          </div>
+                        </div>
+                      )}
                     </>
                   )}
                 </li>
