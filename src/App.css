@@ -846,3 +846,60 @@
     padding-left: 0;
   }
 }
+
+/* ── Drag-and-drop ──────────────────────────────────── */
+.task-item--dragging {
+  opacity: 0.4;
+}
+
+.task-item--drag-over {
+  border-top: 3px solid var(--accent);
+  padding-top: 11px;
+}
+
+.task-item[draggable="true"] .task-item__main {
+  cursor: grab;
+}
+
+.task-item[draggable="true"]:active .task-item__main {
+  cursor: grabbing;
+}
+
+/* ── Move buttons (keyboard accessible) ──────────────── */
+.task-item__move-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.task-item__move {
+  width: 22px;
+  height: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.55rem;
+  color: var(--text-muted);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: color 0.2s, background 0.2s, border-color 0.2s;
+}
+
+.task-item__move:hover:not(:disabled) {
+  color: var(--accent);
+  background: var(--accent-subtle);
+  border-color: var(--accent-glow);
+}
+
+.task-item__move:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.task-item__move:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}

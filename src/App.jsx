@@ -49,6 +49,7 @@ const CATEGORIES = ['Work', 'Personal', 'Study', 'Other']
 const PRIORITIES = ['Low', 'Medium', 'High']
 const PRIORITY_WEIGHT = { High: 3, Medium: 2, Low: 1 }
 const SORT_OPTIONS = [
+  { value: 'manual', label: 'Manual order' },
   { value: 'newest', label: 'Newest first' },
   { value: 'oldest', label: 'Oldest first' },
   { value: 'priority', label: 'Priority: High to Low' },
@@ -70,6 +71,8 @@ function formatDate(dateStr) {
 function sortTasks(tasks, sortBy) {
   const sorted = [...tasks]
   switch (sortBy) {
+    case 'manual':
+      return sorted
     case 'oldest':
       return sorted.sort((a, b) =>
         (a.createdAt || 0) - (b.createdAt || 0) || a.id - b.id
@@ -136,8 +139,10 @@ function App() {
   const [category, setCategory] = useState('Other')
   const [filter, setFilter] = useState('All')
   const [search, setSearch] = useState('')
-  const [sortBy, setSortBy] = useState('newest')
+  const [sortBy, setSortBy] = useState('manual')
   const [categoryFilter, setCategoryFilter] = useState('All')
+  const [draggedId, setDraggedId] = useState(null)
+  const [dragOverId, setDragOverId] = useState(null)
   const [editingId, setEditingId] = useState(null)
   const [editText, setEditText] = useState('')
   const [editDueDate, setEditDueDate] = useState('')
@@ -318,6 +323,79 @@ function App() {
     [saveEdit, cancelEdit]
   )
 
+  // ── Drag-and-drop handlers (manual sort only) ────────
+  const handleDragStart = useCallback((e, taskId) => {
+    setDraggedId(taskId)
+    e.dataTransfer.effectAllowed = 'move'
+    e.dataTransfer.setData('text/plain', String(taskId))
+  }, [])
+
+  const handleDragOver = useCallback((e, taskId) => {
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'move'
+    if (taskId !== draggedId) setDragOverId(taskId)
+  }, [draggedId])
+
+  const handleDragLeave = useCallback(() => {
+    setDragOverId(null)
+  }, [])
+
+  const handleDrop = useCallback((e, targetId) => {
+    e.preventDefault()
+    e.stopPropagation()
+    if (draggedId === null || draggedId === targetId) {
+      setDraggedId(null)
+      setDragOverId(null)
+      return
+    }
+    setTasks(prev => {
+      const draggedIndex = prev.findIndex(t => t.id === draggedId)
+      if (draggedIndex === -1) return prev
+      const next = [...prev]
+      const [dragged] = next.splice(draggedIndex, 1)
+      const targetIndex = next.findIndex(t => t.id === targetId)
+      if (targetIndex === -1) {
+        next.splice(draggedIndex, 0, dragged)
+        return prev
+      }
+      next.splice(targetIndex, 0, dragged)
+      return next
+    })
+    setDraggedId(null)
+    setDragOverId(null)
+  }, [draggedId])
+
+  const handleDragEnd = useCallback(() => {
+    setDraggedId(null)
+    setDragOverId(null)
+  }, [])
+
+  // ── Keyboard-accessible move (manual sort only) ──────
+  const moveTask = useCallback((taskId, direction) => {
+    setTasks(prev => {
+      const visible = prev.filter(task => {
+        if (filter === 'Pending' && task.completed) return false
+        if (filter === 'Completed' && !task.completed) return false
+        if (categoryFilter !== 'All' && task.category !== categoryFilter) return false
+        if (search.trim() && !task.text.toLowerCase().includes(search.trim().toLowerCase())) return false
+        return true
+      })
+      const visibleIndex = visible.findIndex(t => t.id === taskId)
+      if (visibleIndex === -1) return prev
+      const swapIndex = direction === 'up' ? visibleIndex - 1 : visibleIndex + 1
+      if (swapIndex < 0 || swapIndex >= visible.length) return prev
+      const swapTaskId = visible[swapIndex].id
+      const idx1 = prev.findIndex(t => t.id === taskId)
+      const idx2 = prev.findIndex(t => t.id === swapTaskId)
+      if (idx1 === -1 || idx2 === -1) return prev
+      const next = [...prev]
+      const tmp = next[idx1]
+      next[idx1] = next[idx2]
+      next[idx2] = tmp
+      return next
+    })
+  }, [filter, categoryFilter, search])
+
   const filteredTasks = tasks.filter(task => {
     if (filter === 'Pending' && task.completed) return false
     if (filter === 'Completed' && !task.completed) return false
@@ -485,14 +563,22 @@ function App() {
             </div>
           ) : (
             <ul className="task-list" role="list">
-              {sortedTasks.map(task => (
+              {sortedTasks.map((task, index) => (
                 <li
                   key={task.id}
                   className={`task-item${
                     task.completed && editingId !== task.id
                       ? ' task-item--completed'
                       : ''
+                  }${draggedId === task.id ? ' task-item--dragging' : ''}${
+                    dragOverId === task.id ? ' task-item--drag-over' : ''
                   }`}
+                  draggable={sortBy === 'manual'}
+                  onDragStart={sortBy === 'manual' ? e => handleDragStart(e, task.id) : undefined}
+                  onDragOver={sortBy === 'manual' ? e => handleDragOver(e, task.id) : undefined}
+                  onDragLeave={sortBy === 'manual' ? handleDragLeave : undefined}
+                  onDrop={sortBy === 'manual' ? e => handleDrop(e, task.id) : undefined}
+                  onDragEnd={sortBy === 'manual' ? handleDragEnd : undefined}
                 >
                   {editingId === task.id ? (
                     <>
@@ -638,6 +724,26 @@ function App() {
                       >
                         ✕
                       </button>
+                      {sortBy === 'manual' && (
+                        <div className="task-item__move-buttons">
+                          <button
+                            className="task-item__move"
+                            onClick={() => moveTask(task.id, 'up')}
+                            disabled={index === 0}
+                            aria-label="Move task up"
+                          >
+                            ▲
+                          </button>
+                          <button
+                            className="task-item__move"
+                            onClick={() => moveTask(task.id, 'down')}
+                            disabled={index === sortedTasks.length - 1}
+                            aria-label="Move task down"
+                          >
+                            ▼
+                          </button>
+                        </div>
+                      )}
                       </div>
                       {task.subtasks && task.subtasks.length > 0 && (
                         <div className="task-item__subtasks">
