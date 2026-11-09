@@ -21,6 +21,7 @@
   max-width: 600px;
   text-align: center;
   padding: 48px 0 32px;
+  position: relative;
 }
 
 .header__title {
@@ -902,4 +903,389 @@
 .task-item__move:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
+}
+
+/* ── History button ─────────────────────────────────── */
+.task-item__history {
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: color 0.2s, background 0.2s, border-color 0.2s;
+}
+
+.task-item__history:hover {
+  color: var(--accent);
+  background: var(--accent-subtle);
+  border-color: var(--accent-glow);
+}
+
+.task-item__history:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* ── Activity modal ─────────────────────────────────── */
+.activity-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 16px;
+  animation: activity-modal-fade-in 0.2s ease;
+}
+
+@keyframes activity-modal-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.activity-modal {
+  width: 100%;
+  max-width: 480px;
+  max-height: 80vh;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+}
+
+.activity-modal__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.activity-modal__title {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--text-heading);
+  margin: 0;
+}
+
+.activity-modal__close {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: color 0.2s, background 0.2s, border-color 0.2s;
+}
+
+.activity-modal__close:hover {
+  color: var(--danger);
+  background: var(--danger-subtle);
+  border-color: var(--danger-border);
+}
+
+.activity-modal__close:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.activity-modal__task-name {
+  padding: 12px 16px;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text);
+  border-bottom: 1px solid var(--border);
+  word-break: break-word;
+}
+
+.activity-modal__empty {
+  padding: 32px 16px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+}
+
+.activity-timeline {
+  list-style: none;
+  margin: 0;
+  padding: 8px 0;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.activity-timeline__item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 16px;
+  position: relative;
+}
+
+.activity-timeline__item:not(:last-child)::before {
+  content: '';
+  position: absolute;
+  left: 22px;
+  top: 24px;
+  bottom: -4px;
+  width: 2px;
+  background: var(--border);
+}
+
+.activity-timeline__item::after {
+  content: '';
+  position: absolute;
+  left: 18px;
+  top: 14px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 2px solid var(--surface);
+  z-index: 1;
+}
+
+.activity-timeline__time {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  padding-left: 20px;
+}
+
+.activity-timeline__desc {
+  font-size: 0.85rem;
+  color: var(--text);
+  padding-left: 20px;
+  word-break: break-word;
+}
+
+@media (max-width: 480px) {
+  .activity-modal {
+    max-height: 90vh;
+  }
+}
+
+/* ── Notification bell & panel ───────────────────────── */
+.notif-container {
+  position: absolute;
+  right: 0;
+  top: 48px;
+}
+
+.notif-bell {
+  position: relative;
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.2rem;
+  color: var(--text-muted);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  cursor: pointer;
+  transition: color 0.2s, background 0.2s, border-color 0.2s;
+}
+
+.notif-bell:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.notif-bell:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.notif-bell__badge {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.65rem;
+  font-weight: 700;
+  color: #fff;
+  background: var(--danger);
+  border-radius: 999px;
+  border: 2px solid var(--surface);
+}
+
+.notif-panel {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  width: 320px;
+  max-width: calc(100vw - 32px);
+  max-height: 400px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.15);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  z-index: 100;
+  animation: notif-panel-slide 0.2s ease;
+}
+
+@keyframes notif-panel-slide {
+  from { opacity: 0; transform: translateY(-8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.notif-panel__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.notif-panel__title {
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: var(--text-heading);
+}
+
+.notif-panel__clear {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: color 0.2s;
+}
+
+.notif-panel__clear:hover {
+  color: var(--danger);
+}
+
+.notif-panel__empty {
+  padding: 24px 16px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+.notif-panel__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.notif-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  transition: background 0.15s;
+}
+
+.notif-item:last-child {
+  border-bottom: none;
+}
+
+.notif-item--unread {
+  background: var(--accent-subtle);
+}
+
+.notif-item__dismiss {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.65rem;
+  color: var(--text-muted);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: color 0.2s, background 0.2s, border-color 0.2s;
+}
+
+.notif-item__dismiss:hover {
+  color: var(--danger);
+  background: var(--danger-subtle);
+  border-color: var(--danger-border);
+}
+
+.notif-item__body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+
+.notif-item__text {
+  font-size: 0.85rem;
+  color: var(--text);
+  word-break: break-word;
+}
+
+.notif-item__time {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+
+.notif-panel__note {
+  padding: 8px 16px;
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  text-align: center;
+  border-top: 1px solid var(--border);
+  font-style: italic;
+}
+
+/* ── Reminder input ─────────────────────────────────── */
+.task-input--datetime {
+  flex: 0 0 auto;
+  width: auto;
+  min-width: 160px;
+}
+
+@media (max-width: 400px) {
+  .task-input--datetime {
+    width: 100%;
+  }
+}
+
+/* ── Reminder badge on tasks ─────────────────────────── */
+.task-item__reminder {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+@media (max-width: 480px) {
+  .notif-container {
+    top: 40px;
+  }
 }

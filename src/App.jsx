@@ -56,6 +56,7 @@ const SORT_OPTIONS = [
   { value: 'dueDate', label: 'Due date: Earliest first' },
 ]
 const STORAGE_KEY = 'task-tracker-tasks'
+const NOTIF_KEY = 'task-tracker-notifications'
 
 function getTodayStr() {
   const d = new Date()
@@ -66,6 +67,53 @@ function formatDate(dateStr) {
   if (!dateStr) return null
   const d = new Date(dateStr + 'T00:00:00')
   return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+}
+
+function formatTimestamp(ts) {
+  if (typeof ts !== 'number' || isNaN(ts)) return 'Unknown time'
+  const d = new Date(ts)
+  if (isNaN(d.getTime())) return 'Unknown time'
+  return d.toLocaleString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  })
+}
+
+function makeActivity(description) {
+  return { timestamp: Date.now(), description }
+}
+
+function formatReminder(reminderStr) {
+  if (!reminderStr) return null
+  const d = new Date(reminderStr)
+  if (isNaN(d.getTime())) return null
+  return d.toLocaleString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  })
+}
+
+function loadNotifications() {
+  try {
+    const raw = localStorage.getItem(NOTIF_KEY)
+    if (!raw) return []
+    const parsed = JSON.parse(raw)
+    if (!Array.isArray(parsed)) return []
+    return parsed.filter(
+      n =>
+        typeof n.id === 'number' &&
+        typeof n.taskId === 'number' &&
+        typeof n.taskText === 'string' &&
+        typeof n.timestamp === 'number' &&
+        typeof n.read === 'boolean'
+    )
+  } catch {
+    return []
+  }
 }
 
 function sortTasks(tasks, sortBy) {
@@ -123,6 +171,15 @@ function loadTasks() {
                 typeof s.completed === 'boolean'
             )
           : [],
+        activity: Array.isArray(t.activity)
+          ? t.activity.filter(
+              a =>
+                typeof a.timestamp === 'number' &&
+                typeof a.description === 'string'
+            )
+          : [],
+        reminder: typeof t.reminder === 'string' ? t.reminder : null,
+        reminderNotified: typeof t.reminderNotified === 'boolean' ? t.reminderNotified : false,
       }))
   } catch {
     return []
@@ -153,6 +210,11 @@ function App() {
   const [subtaskInput, setSubtaskInput] = useState('')
   const [newSubtasks, setNewSubtasks] = useState([])
   const [inlineSubInputs, setInlineSubInputs] = useState({})
+  const [activityTaskId, setActivityTaskId] = useState(null)
+  const [reminder, setReminder] = useState('')
+  const [editReminder, setEditReminder] = useState('')
+  const [notifications, setNotifications] = useState(() => loadNotifications())
+  const [notifPanelOpen, setNotifPanelOpen] = useState(false)
 
   // useRef for the auto-increment ID so it never causes re-renders
   // and is not stale across closures the way a module-level let would be
@@ -176,12 +238,57 @@ function App() {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(tasks))
   }, [tasks])
 
+  // Persist notifications to localStorage
+  useEffect(() => {
+    localStorage.setItem(NOTIF_KEY, JSON.stringify(notifications))
+  }, [notifications])
+
+  // ── Reminder checking (in-app only, not background) ──
+  const tasksRef = useRef(tasks)
+  tasksRef.current = tasks
+
+  useEffect(() => {
+    const checkReminders = () => {
+      const now = Date.now()
+      const currentTasks = tasksRef.current
+      const newNotifs = []
+      const notifiedIds = []
+      currentTasks.forEach(task => {
+        if (task.completed) return
+        if (!task.reminder) return
+        if (task.reminderNotified) return
+        const reminderTime = new Date(task.reminder).getTime()
+        if (isNaN(reminderTime) || reminderTime > now) return
+        newNotifs.push({
+          id: Date.now() + Math.random(),
+          taskId: task.id,
+          taskText: task.text,
+          timestamp: Date.now(),
+          read: false,
+        })
+        notifiedIds.push(task.id)
+      })
+      if (newNotifs.length > 0) {
+        setNotifications(prev => [...newNotifs, ...prev])
+        setTasks(prev =>
+          prev.map(t =>
+            notifiedIds.includes(t.id) ? { ...t, reminderNotified: true } : t
+          )
+        )
+      }
+    }
+    checkReminders()
+    const interval = setInterval(checkReminders, 15000)
+    return () => clearInterval(interval)
+  }, [])
+
   const addTask = useCallback(() => {
     const trimmed = input.trim()
     if (!trimmed) return
+    const ts = Date.now()
     setTasks(prev => [
       ...prev,
-      { id: nextId.current++, text: trimmed, completed: false, dueDate: dueDate || null, priority, category, createdAt: Date.now(), subtasks: newSubtasks },
+      { id: nextId.current++, text: trimmed, completed: false, dueDate: dueDate || null, priority, category, createdAt: ts, subtasks: newSubtasks, activity: [makeActivity('Task created')], reminder: reminder || null, reminderNotified: false },
     ])
     setInput('')
     setDueDate('')
@@ -189,7 +296,8 @@ function App() {
     setCategory('Other')
     setNewSubtasks([])
     setSubtaskInput('')
-  }, [input, dueDate, priority, category, newSubtasks])
+    setReminder('')
+  }, [input, dueDate, priority, category, newSubtasks, reminder])
 
   // ── Subtask handlers (add form) ─────────────────────
   const addNewSubtask = useCallback(() => {
@@ -217,7 +325,16 @@ function App() {
   const toggleTask = useCallback(id => {
     setTasks(prev =>
       prev.map(task =>
-        task.id === id ? { ...task, completed: !task.completed } : task
+        task.id === id
+          ? {
+              ...task,
+              completed: !task.completed,
+              activity: [
+                makeActivity(task.completed ? 'Task reopened' : 'Task completed'),
+                ...(task.activity || []),
+              ],
+            }
+          : task
       )
     )
   }, [])
@@ -235,15 +352,52 @@ function App() {
     setEditCategory(task.category || 'Other')
     setEditSubtasks((task.subtasks || []).map(s => ({ ...s })))
     setEditSubtaskInput('')
+    setEditReminder(task.reminder || '')
   }, [])
 
   const saveEdit = useCallback(
     id => {
       const trimmed = editText.trim()
       if (!trimmed) return
-      setTasks(prev =>
-        prev.map(task => (task.id === id ? { ...task, text: trimmed, dueDate: editDueDate || null, priority: editPriority, category: editCategory, subtasks: editSubtasks } : task))
-      )
+      setTasks(prev => {
+        const oldTask = prev.find(t => t.id === id)
+        if (!oldTask) return prev
+        const ts = Date.now()
+        const activities = []
+        if (trimmed !== oldTask.text)
+          activities.push({ timestamp: ts, description: `Title changed from "${oldTask.text}" to "${trimmed}"` })
+        const newDueDate = editDueDate || null
+        if (newDueDate !== (oldTask.dueDate || null))
+          activities.push({ timestamp: ts, description: `Due date set to ${newDueDate ? formatDate(newDueDate) : 'none'}` })
+        if (editPriority !== (oldTask.priority || 'Medium'))
+          activities.push({ timestamp: ts, description: `Priority changed to ${editPriority}` })
+        if (editCategory !== (oldTask.category || 'Other'))
+          activities.push({ timestamp: ts, description: `Category changed to ${editCategory}` })
+        const newReminder = editReminder || null
+        const oldReminder = oldTask.reminder || null
+        if (newReminder !== oldReminder)
+          activities.push({ timestamp: ts, description: `Reminder ${newReminder ? 'set to ' + formatReminder(newReminder) : 'removed'}` })
+        const oldSubs = oldTask.subtasks || []
+        const newSubs = editSubtasks
+        newSubs.forEach(ns => {
+          if (!oldSubs.some(os => os.id === ns.id))
+            activities.push({ timestamp: ts, description: `Subtask added: "${ns.text}"` })
+        })
+        oldSubs.forEach(os => {
+          if (!newSubs.some(ns => ns.id === os.id))
+            activities.push({ timestamp: ts, description: `Subtask deleted: "${os.text}"` })
+        })
+        newSubs.forEach(ns => {
+          const os = oldSubs.find(o => o.id === ns.id)
+          if (os && os.completed !== ns.completed)
+            activities.push({ timestamp: ts, description: `Subtask "${ns.text}" ${ns.completed ? 'completed' : 'reopened'}` })
+        })
+        return prev.map(task =>
+          task.id === id
+            ? { ...task, text: trimmed, dueDate: editDueDate || null, priority: editPriority, category: editCategory, subtasks: editSubtasks, activity: [...activities, ...(task.activity || [])], reminder: newReminder, reminderNotified: newReminder !== oldReminder ? false : (oldTask.reminderNotified || false) }
+            : task
+        )
+      })
       setEditingId(null)
       setEditText('')
       setEditDueDate('')
@@ -251,8 +405,9 @@ function App() {
       setEditCategory('Other')
       setEditSubtasks([])
       setEditSubtaskInput('')
+      setEditReminder('')
     },
-    [editText, editDueDate, editPriority, editCategory, editSubtasks]
+    [editText, editDueDate, editPriority, editCategory, editSubtasks, editReminder]
   )
 
   const cancelEdit = useCallback(() => {
@@ -263,6 +418,7 @@ function App() {
     setEditCategory('Other')
     setEditSubtasks([])
     setEditSubtaskInput('')
+    setEditReminder('')
   }, [])
 
   // ── Subtask handlers (edit form) ────────────────────
@@ -284,11 +440,18 @@ function App() {
   // ── Subtask handlers (task list, non-editing) ────────
   const toggleSubtask = useCallback((taskId, subId) => {
     setTasks(prev =>
-      prev.map(task =>
-        task.id === taskId
-          ? { ...task, subtasks: (task.subtasks || []).map(s => s.id === subId ? { ...s, completed: !s.completed } : s) }
-          : task
-      )
+      prev.map(task => {
+        if (task.id !== taskId) return task
+        const sub = (task.subtasks || []).find(s => s.id === subId)
+        return {
+          ...task,
+          subtasks: (task.subtasks || []).map(s => s.id === subId ? { ...s, completed: !s.completed } : s),
+          activity: [
+            makeActivity(`Subtask "${sub ? sub.text : ''}" ${sub && sub.completed ? 'reopened' : 'completed'}`),
+            ...(task.activity || []),
+          ],
+        }
+      })
     )
   }, [])
 
@@ -298,7 +461,14 @@ function App() {
     setTasks(prev =>
       prev.map(task =>
         task.id === taskId
-          ? { ...task, subtasks: [...(task.subtasks || []), { id: nextSubId.current++, text, completed: false }] }
+          ? {
+              ...task,
+              subtasks: [...(task.subtasks || []), { id: nextSubId.current++, text, completed: false }],
+              activity: [
+                makeActivity(`Subtask added: "${text}"`),
+                ...(task.activity || []),
+              ],
+            }
           : task
       )
     )
@@ -307,11 +477,18 @@ function App() {
 
   const deleteSubtaskFromTask = useCallback((taskId, subId) => {
     setTasks(prev =>
-      prev.map(task =>
-        task.id === taskId
-          ? { ...task, subtasks: (task.subtasks || []).filter(s => s.id !== subId) }
-          : task
-      )
+      prev.map(task => {
+        if (task.id !== taskId) return task
+        const sub = (task.subtasks || []).find(s => s.id === subId)
+        return {
+          ...task,
+          subtasks: (task.subtasks || []).filter(s => s.id !== subId),
+          activity: [
+            makeActivity(`Subtask deleted: "${sub ? sub.text : ''}"`),
+            ...(task.activity || []),
+          ],
+        }
+      })
     )
   }, [])
 
@@ -396,6 +573,15 @@ function App() {
     })
   }, [filter, categoryFilter, search])
 
+  // ── Notification handlers ────────────────────────────
+  const dismissNotif = useCallback(id => {
+    setNotifications(prev => prev.filter(n => n.id !== id))
+  }, [])
+
+  const dismissAllNotifs = useCallback(() => {
+    setNotifications([])
+  }, [])
+
   const filteredTasks = tasks.filter(task => {
     if (filter === 'Pending' && task.completed) return false
     if (filter === 'Completed' && !task.completed) return false
@@ -410,12 +596,52 @@ function App() {
   const completedCount = tasks.filter(t => t.completed).length
   const pendingCount = totalCount - completedCount
   const today = getTodayStr()
+  const activityTask = activityTaskId !== null ? tasks.find(t => t.id === activityTaskId) : null
+  const unreadCount = notifications.filter(n => !n.read).length
 
   return (
     <div className="app">
       <header className="header">
         <h1 className="header__title">Task Tracker</h1>
         <p className="header__subtitle">Stay organized, get things done</p>
+        <div className="notif-container">
+          <button
+            className="notif-bell"
+            onClick={() => setNotifPanelOpen(prev => !prev)}
+            aria-label={`Notifications${unreadCount > 0 ? `, ${unreadCount} unread` : ''}`}
+          >
+            🔔
+            {unreadCount > 0 && (
+              <span className="notif-bell__badge">{unreadCount > 9 ? '9+' : unreadCount}</span>
+            )}
+          </button>
+          {notifPanelOpen && (
+            <div className="notif-panel" role="dialog" aria-label="Notifications">
+              <div className="notif-panel__header">
+                <span className="notif-panel__title">Notifications</span>
+                {notifications.length > 0 && (
+                  <button className="notif-panel__clear" onClick={dismissAllNotifs} aria-label="Dismiss all notifications">Clear all</button>
+                )}
+              </div>
+              {notifications.length === 0 ? (
+                <div className="notif-panel__empty">No notifications</div>
+              ) : (
+                <ul className="notif-panel__list">
+                  {notifications.map(n => (
+                    <li key={n.id} className={`notif-item${!n.read ? ' notif-item--unread' : ''}`}>
+                      <button className="notif-item__dismiss" onClick={() => dismissNotif(n.id)} aria-label="Dismiss notification">✕</button>
+                      <div className="notif-item__body">
+                        <span className="notif-item__text">Reminder: "{n.taskText}"</span>
+                        <span className="notif-item__time">{formatTimestamp(n.timestamp)}</span>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <div className="notif-panel__note">Reminders work while the app is open</div>
+            </div>
+          )}
+        </div>
       </header>
 
       <main className="main">
@@ -463,6 +689,13 @@ function App() {
                 <option key={c} value={c}>{c}</option>
               ))}
             </select>
+            <input
+              className="task-input task-input--datetime"
+              type="datetime-local"
+              value={reminder}
+              onChange={e => setReminder(e.target.value)}
+              aria-label="Task reminder (optional)"
+            />
             <button className="add-btn" onClick={addTask} aria-label="Add task">
               Add
             </button>
@@ -619,6 +852,13 @@ function App() {
                           <option key={c} value={c}>{c}</option>
                         ))}
                       </select>
+                      <input
+                        className="task-input task-input--inline task-input--datetime"
+                        type="datetime-local"
+                        value={editReminder}
+                        onChange={e => setEditReminder(e.target.value)}
+                        aria-label="Edit task reminder"
+                      />
                       <div className="task-item__edit-actions">
                         <button
                           className="task-item__save"
@@ -692,6 +932,11 @@ function App() {
                                 {formatDate(task.dueDate)}
                               </span>
                             )}
+                            {task.reminder && (
+                              <span className="task-item__reminder">
+                                🔔 {formatReminder(task.reminder)}
+                              </span>
+                            )}
                             {!task.completed && task.dueDate < today && (
                               <span className="task-item__badge task-item__badge--overdue">
                                 Overdue
@@ -723,6 +968,13 @@ function App() {
                         aria-label={`Delete task "${task.text}"`}
                       >
                         ✕
+                      </button>
+                      <button
+                        className="task-item__history"
+                        onClick={() => setActivityTaskId(task.id)}
+                        aria-label={`View activity history for "${task.text}"`}
+                      >
+                        🕐
                       </button>
                       {sortBy === 'manual' && (
                         <div className="task-item__move-buttons">
@@ -797,6 +1049,42 @@ function App() {
               Completed: <strong>{completedCount}</strong>
             </span>
           </footer>
+        )}
+        {activityTask && (
+          <div className="activity-modal-overlay" onClick={() => setActivityTaskId(null)}>
+            <div
+              className="activity-modal"
+              onClick={e => e.stopPropagation()}
+              role="dialog"
+              aria-label={`Activity history for "${activityTask.text}"`}
+            >
+              <div className="activity-modal__header">
+                <h2 className="activity-modal__title">Activity History</h2>
+                <button
+                  className="activity-modal__close"
+                  onClick={() => setActivityTaskId(null)}
+                  aria-label="Close activity history"
+                >
+                  ✕
+                </button>
+              </div>
+              <div className="activity-modal__task-name">{activityTask.text}</div>
+              {(activityTask.activity || []).length === 0 ? (
+                <div className="activity-modal__empty">No activity recorded yet.</div>
+              ) : (
+                <ul className="activity-timeline">
+                  {(activityTask.activity || []).map((a, i) => (
+                    <li key={i} className="activity-timeline__item">
+                      <span className="activity-timeline__time">
+                        {formatTimestamp(a.timestamp)}
+                      </span>
+                      <span className="activity-timeline__desc">{a.description}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
         )}
       </main>
     </div>
