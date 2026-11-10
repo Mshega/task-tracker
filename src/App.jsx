@@ -116,6 +116,55 @@ function loadNotifications() {
   }
 }
 
+function validateImportData(raw) {
+  let parsed
+  try {
+    parsed = JSON.parse(raw)
+  } catch {
+    return { error: 'Invalid JSON file. Please select a valid export file.' }
+  }
+  if (!Array.isArray(parsed)) {
+    return { error: 'Invalid file format. Expected an array of tasks.' }
+  }
+  if (parsed.length === 0) {
+    return { error: 'No tasks found in the file.' }
+  }
+  const validTasks = []
+  for (let i = 0; i < parsed.length; i++) {
+    const t = parsed[i]
+    if (typeof t !== 'object' || t === null) {
+      return { error: `Item ${i + 1} is not a valid task object.` }
+    }
+    if (typeof t.text !== 'string' || !t.text.trim()) {
+      return { error: `Task ${i + 1} has an invalid or missing title.` }
+    }
+    if (typeof t.completed !== 'boolean') {
+      return { error: `Task ${i + 1} has an invalid completion status.` }
+    }
+    validTasks.push({
+      id: typeof t.id === 'number' ? t.id : null,
+      text: t.text,
+      completed: t.completed,
+      dueDate: typeof t.dueDate === 'string' ? t.dueDate : null,
+      priority: PRIORITIES.includes(t.priority) ? t.priority : 'Medium',
+      category: CATEGORIES.includes(t.category) ? t.category : 'Other',
+      createdAt: typeof t.createdAt === 'number' ? t.createdAt : Date.now(),
+      subtasks: Array.isArray(t.subtasks)
+        ? t.subtasks
+            .filter(s => typeof s.text === 'string' && typeof s.completed === 'boolean')
+            .map(s => ({ id: typeof s.id === 'number' ? s.id : 0, text: s.text, completed: s.completed }))
+        : [],
+      activity: Array.isArray(t.activity)
+        ? t.activity.filter(a => typeof a.timestamp === 'number' && typeof a.description === 'string')
+        : [],
+      reminder: typeof t.reminder === 'string' ? t.reminder : null,
+      reminderNotified: typeof t.reminderNotified === 'boolean' ? t.reminderNotified : false,
+      archived: typeof t.archived === 'boolean' ? t.archived : false,
+    })
+  }
+  return { tasks: validTasks }
+}
+
 function sortTasks(tasks, sortBy) {
   const sorted = [...tasks]
   switch (sortBy) {
@@ -180,6 +229,7 @@ function loadTasks() {
           : [],
         reminder: typeof t.reminder === 'string' ? t.reminder : null,
         reminderNotified: typeof t.reminderNotified === 'boolean' ? t.reminderNotified : false,
+        archived: typeof t.archived === 'boolean' ? t.archived : false,
       }))
   } catch {
     return []
@@ -215,11 +265,13 @@ function App() {
   const [editReminder, setEditReminder] = useState('')
   const [notifications, setNotifications] = useState(() => loadNotifications())
   const [notifPanelOpen, setNotifPanelOpen] = useState(false)
+  const [showArchive, setShowArchive] = useState(false)
 
   // useRef for the auto-increment ID so it never causes re-renders
   // and is not stale across closures the way a module-level let would be
   const nextId = useRef(1)
   const nextSubId = useRef(1)
+  const fileInputRef = useRef(null)
   useEffect(() => {
     const saved = loadTasks()
     if (saved.length > 0) {
@@ -255,6 +307,7 @@ function App() {
       const notifiedIds = []
       currentTasks.forEach(task => {
         if (task.completed) return
+        if (task.archived) return
         if (!task.reminder) return
         if (task.reminderNotified) return
         const reminderTime = new Date(task.reminder).getTime()
@@ -288,7 +341,7 @@ function App() {
     const ts = Date.now()
     setTasks(prev => [
       ...prev,
-      { id: nextId.current++, text: trimmed, completed: false, dueDate: dueDate || null, priority, category, createdAt: ts, subtasks: newSubtasks, activity: [makeActivity('Task created')], reminder: reminder || null, reminderNotified: false },
+      { id: nextId.current++, text: trimmed, completed: false, dueDate: dueDate || null, priority, category, createdAt: ts, subtasks: newSubtasks, activity: [makeActivity('Task created')], reminder: reminder || null, reminderNotified: false, archived: false },
     ])
     setInput('')
     setDueDate('')
@@ -342,6 +395,42 @@ function App() {
   const deleteTask = useCallback((id, text) => {
     if (!window.confirm(`Delete "${text}"?`)) return
     setTasks(prev => prev.filter(task => task.id !== id))
+  }, [])
+
+  const archiveTask = useCallback(id => {
+    setTasks(prev =>
+      prev.map(task =>
+        task.id === id
+          ? { ...task, archived: true, activity: [makeActivity('Task archived'), ...(task.activity || [])] }
+          : task
+      )
+    )
+  }, [])
+
+  const restoreTask = useCallback(id => {
+    setTasks(prev =>
+      prev.map(task =>
+        task.id === id
+          ? { ...task, archived: false, activity: [makeActivity('Task restored'), ...(task.activity || [])] }
+          : task
+      )
+    )
+  }, [])
+
+  const deleteArchivedTask = useCallback((id, text) => {
+    if (!window.confirm(`Permanently delete "${text}"? This cannot be undone.`)) return
+    setTasks(prev => prev.filter(task => task.id !== id))
+  }, [])
+
+  const archiveAllCompleted = useCallback(() => {
+    if (!window.confirm('Archive all completed tasks?')) return
+    setTasks(prev =>
+      prev.map(task =>
+        task.completed && !task.archived
+          ? { ...task, archived: true, activity: [makeActivity('Task archived'), ...(task.activity || [])] }
+          : task
+      )
+    )
   }, [])
 
   const startEdit = useCallback(task => {
@@ -551,6 +640,7 @@ function App() {
   const moveTask = useCallback((taskId, direction) => {
     setTasks(prev => {
       const visible = prev.filter(task => {
+        if (task.archived) return false
         if (filter === 'Pending' && task.completed) return false
         if (filter === 'Completed' && !task.completed) return false
         if (categoryFilter !== 'All' && task.category !== categoryFilter) return false
@@ -582,7 +672,89 @@ function App() {
     setNotifications([])
   }, [])
 
+  // ── Export & Import handlers ─────────────────────────
+  const exportTasks = useCallback(() => {
+    const data = JSON.stringify(tasks, null, 2)
+    const blob = new Blob([data], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    const d = new Date()
+    const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+    a.download = `task-tracker-export-${dateStr}.json`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+  }, [tasks])
+
+  const handleImportClick = useCallback(() => {
+    fileInputRef.current?.click()
+  }, [])
+
+  const handleFileSelect = useCallback(e => {
+    const file = e.target.files[0]
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = event => {
+      const raw = event.target.result
+      const result = validateImportData(raw)
+      if (result.error) {
+        window.alert(`Import failed: ${result.error}`)
+        e.target.value = ''
+        return
+      }
+      const importedTasks = result.tasks
+      const existingIds = new Set(tasks.map(t => t.id))
+      const duplicates = importedTasks.filter(t => t.id !== null && existingIds.has(t.id))
+      const nonDuplicates = importedTasks.filter(t => t.id === null || !existingIds.has(t.id))
+      let tasksToImport
+      if (duplicates.length > 0) {
+        const importDuplicates = window.confirm(
+          `Found ${duplicates.length} duplicate task(s) with existing IDs.\n\n` +
+          `Click OK to import ALL ${importedTasks.length} tasks (duplicates get new IDs).\n` +
+          `Click Cancel to import only ${nonDuplicates.length} new task(s) (skip duplicates).`
+        )
+        tasksToImport = importDuplicates ? importedTasks : nonDuplicates
+      } else {
+        tasksToImport = importedTasks
+      }
+      if (tasksToImport.length === 0) {
+        window.alert('No tasks to import.')
+        e.target.value = ''
+        return
+      }
+      if (!window.confirm(`Import ${tasksToImport.length} task(s)?`)) {
+        e.target.value = ''
+        return
+      }
+      const usedIds = new Set(tasks.map(t => t.id))
+      const newTasks = tasksToImport.map(t => {
+        let newId = t.id
+        if (t.id === null || usedIds.has(t.id)) {
+          newId = nextId.current++
+        }
+        usedIds.add(newId)
+        const subtasks = (t.subtasks || []).map(s => ({
+          ...s,
+          id: nextSubId.current++,
+        }))
+        return { ...t, id: newId, subtasks }
+      })
+      nextId.current = Math.max(nextId.current, ...usedIds, 0) + 1
+      setTasks(prev => [...prev, ...newTasks])
+      window.alert(`Successfully imported ${newTasks.length} task(s).`)
+      e.target.value = ''
+    }
+    reader.onerror = () => {
+      window.alert('Failed to read the file.')
+      e.target.value = ''
+    }
+    reader.readAsText(file)
+  }, [tasks])
+
   const filteredTasks = tasks.filter(task => {
+    if (task.archived) return false
     if (filter === 'Pending' && task.completed) return false
     if (filter === 'Completed' && !task.completed) return false
     if (categoryFilter !== 'All' && task.category !== categoryFilter) return false
@@ -592,8 +764,10 @@ function App() {
 
   const sortedTasks = sortTasks(filteredTasks, sortBy)
 
-  const totalCount = tasks.length
-  const completedCount = tasks.filter(t => t.completed).length
+  const activeTasks = tasks.filter(t => !t.archived)
+  const archivedTasks = tasks.filter(t => t.archived)
+  const totalCount = activeTasks.length
+  const completedCount = activeTasks.filter(t => t.completed).length
   const pendingCount = totalCount - completedCount
   const today = getTodayStr()
   const activityTask = activityTaskId !== null ? tasks.find(t => t.id === activityTaskId) : null
@@ -786,7 +960,7 @@ function App() {
         <section className="task-list-section" aria-label="Task list">
           {sortedTasks.length === 0 ? (
             <div className="empty-state">
-              {tasks.length === 0
+              {activeTasks.length === 0
                 ? 'No tasks yet. Add one above!'
                 : search.trim()
                   ? `No tasks match "${search.trim()}".`
@@ -976,6 +1150,13 @@ function App() {
                       >
                         🕐
                       </button>
+                      <button
+                        className="task-item__archive"
+                        onClick={() => archiveTask(task.id)}
+                        aria-label={`Archive task "${task.text}"`}
+                      >
+                        📦
+                      </button>
                       {sortBy === 'manual' && (
                         <div className="task-item__move-buttons">
                           <button
@@ -1035,7 +1216,7 @@ function App() {
           )}
         </section>
 
-        {tasks.length > 0 && (
+        {activeTasks.length > 0 && (
           <footer className="counts" aria-label="Task summary">
             <span className="counts__item">
               Total: <strong>{totalCount}</strong>
@@ -1050,6 +1231,94 @@ function App() {
             </span>
           </footer>
         )}
+
+        {completedCount > 0 && (
+          <button
+            className="archive-completed-btn"
+            onClick={archiveAllCompleted}
+            aria-label="Archive all completed tasks"
+          >
+            Archive all completed ({completedCount})
+          </button>
+        )}
+
+        {archivedTasks.length > 0 && (
+          <section className="archive-section" aria-label="Archived tasks">
+            <button
+              className="archive-section__toggle"
+              onClick={() => setShowArchive(prev => !prev)}
+              aria-expanded={showArchive}
+            >
+              Archived ({archivedTasks.length}) {showArchive ? '▲' : '▼'}
+            </button>
+            {showArchive && (
+              <ul className="task-list archive-list" role="list">
+                {archivedTasks.map(task => (
+                  <li key={task.id} className="task-item task-item--archived">
+                    <div className="task-item__main">
+                      <div className="task-item__content">
+                        <span className="task-item__text">{task.text}</span>
+                        <div className="task-item__meta">
+                          <span className={`task-item__badge task-item__badge--priority-${(task.priority || 'Medium').toLowerCase()}`}>
+                            {task.priority || 'Medium'}
+                          </span>
+                          <span className={`task-item__badge task-item__badge--category-${(task.category || 'Other').toLowerCase()}`}>
+                            {task.category || 'Other'}
+                          </span>
+                          {task.completed && (
+                            <span className="task-item__badge task-item__badge--completed">Completed</span>
+                          )}
+                          {task.dueDate && (
+                            <span className="task-item__due-date">{formatDate(task.dueDate)}</span>
+                          )}
+                          {task.reminder && (
+                            <span className="task-item__reminder">🔔 {formatReminder(task.reminder)}</span>
+                          )}
+                          {task.subtasks && task.subtasks.length > 0 && (
+                            <span className="task-item__subtask-count">
+                              {task.subtasks.filter(s => s.completed).length}/{task.subtasks.length} subtasks
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      <button
+                        className="task-item__restore"
+                        onClick={() => restoreTask(task.id)}
+                        aria-label={`Restore task "${task.text}"`}
+                      >
+                        ↩
+                      </button>
+                      <button
+                        className="task-item__delete"
+                        onClick={() => deleteArchivedTask(task.id, task.text)}
+                        aria-label={`Permanently delete task "${task.text}"`}
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+        )}
+
+        <section className="data-actions" aria-label="Export and import tasks">
+          <button className="data-action-btn" onClick={exportTasks}>
+            ⬇ Export
+          </button>
+          <button className="data-action-btn" onClick={handleImportClick}>
+            ⬆ Import
+          </button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".json,application/json"
+            onChange={handleFileSelect}
+            style={{ display: 'none' }}
+          />
+        </section>
+
         {activityTask && (
           <div className="activity-modal-overlay" onClick={() => setActivityTaskId(null)}>
             <div

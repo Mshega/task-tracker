@@ -1289,3 +1289,165 @@
     top: 40px;
   }
 }
+
+/* ── Archive button ──────────────────────────────────── */
+.task-item__archive {
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: color 0.2s, background 0.2s, border-color 0.2s;
+}
+
+.task-item__archive:hover {
+  color: var(--accent);
+  background: var(--accent-subtle);
+  border-color: var(--accent-glow);
+}
+
+.task-item__archive:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* ── Archive completed button ────────────────────────── */
+.archive-completed-btn {
+  padding: 8px 14px;
+  font-size: 0.825rem;
+  font-weight: 500;
+  font-family: inherit;
+  color: var(--text-muted);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: color 0.2s, background 0.2s, border-color 0.2s;
+  align-self: flex-start;
+}
+
+.archive-completed-btn:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--accent-subtle);
+}
+
+.archive-completed-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* ── Archived tasks section ──────────────────────────── */
+.archive-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.archive-section__toggle {
+  padding: 8px 14px;
+  font-size: 0.875rem;
+  font-weight: 600;
+  font-family: inherit;
+  color: var(--text-muted);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: color 0.2s, background 0.2s, border-color 0.2s;
+  text-align: left;
+}
+
+.archive-section__toggle:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.archive-section__toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.archive-list {
+  border: 1px dashed var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.task-item--archived {
+  opacity: 0.7;
+}
+
+.task-item--archived .task-item__text {
+  text-decoration: line-through;
+  color: var(--text-muted);
+}
+
+.task-item__restore {
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: color 0.2s, background 0.2s, border-color 0.2s;
+}
+
+.task-item__restore:hover {
+  color: var(--success);
+  background: rgba(22, 163, 74, 0.12);
+}
+
+.task-item__restore:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.task-item__badge--completed {
+  color: var(--success);
+  background: rgba(22, 163, 74, 0.12);
+}
+
+/* ── Data actions (export/import) ───────────────────── */
+.data-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.data-action-btn {
+  flex: 1;
+  padding: 8px 14px;
+  font-size: 0.875rem;
+  font-weight: 500;
+  font-family: inherit;
+  color: var(--text-muted);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: color 0.2s, background 0.2s, border-color 0.2s;
+}
+
+.data-action-btn:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--accent-subtle);
+}
+
+.data-action-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
