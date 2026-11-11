@@ -47,6 +47,7 @@ function TaskSummary({ total, pending, completed }) {
 const FILTERS = ['All', 'Pending', 'Completed']
 const CATEGORIES = ['Work', 'Personal', 'Study', 'Other']
 const PRIORITIES = ['Low', 'Medium', 'High']
+const RECURRENCE_UNITS = ['daily', 'weekly', 'monthly', 'yearly']
 const PRIORITY_WEIGHT = { High: 3, Medium: 2, Low: 1 }
 const SORT_OPTIONS = [
   { value: 'manual', label: 'Manual order' },
@@ -95,6 +96,46 @@ function formatReminder(reminderStr) {
     hour: 'numeric',
     minute: '2-digit',
   })
+}
+
+// Advance a YYYY-MM-DD string by `interval` units, clamping month-end dates safely
+function calcNextDueDate(dueDateStr, unit, interval) {
+  if (!dueDateStr) return null
+  const [y, m, d] = dueDateStr.split('-').map(Number)
+  if (!y || !m || !d) return null
+  const n = Math.max(1, Math.floor(interval)) // guard against 0 / negative
+  let ny = y, nm = m, nd = d
+  switch (unit) {
+    case 'daily':
+      { const base = new Date(y, m - 1, d + n); ny = base.getFullYear(); nm = base.getMonth() + 1; nd = base.getDate(); break }
+    case 'weekly':
+      { const base = new Date(y, m - 1, d + n * 7); ny = base.getFullYear(); nm = base.getMonth() + 1; nd = base.getDate(); break }
+    case 'monthly': {
+      nm = m + n; ny = y
+      while (nm > 12) { nm -= 12; ny++ }
+      // Clamp to last valid day of that month
+      const maxDay = new Date(ny, nm, 0).getDate()
+      nd = Math.min(d, maxDay)
+      break
+    }
+    case 'yearly': {
+      ny = y + n
+      // Handle Feb 29 on non-leap years
+      const maxDay = new Date(ny, m, 0).getDate()
+      nd = Math.min(d, maxDay)
+      break
+    }
+    default: return null
+  }
+  return `${ny}-${String(nm).padStart(2, '0')}-${String(nd).padStart(2, '0')}`
+}
+
+function formatRecurrence(recurrence) {
+  if (!recurrence || !recurrence.unit) return null
+  const { unit, interval } = recurrence
+  const n = Math.max(1, Math.floor(interval || 1))
+  if (n === 1) return `Every ${unit.replace('ly', '')}`
+  return `Every ${n} ${unit.replace('ly', 's')}`
 }
 
 function loadNotifications() {
@@ -160,6 +201,9 @@ function validateImportData(raw) {
       reminder: typeof t.reminder === 'string' ? t.reminder : null,
       reminderNotified: typeof t.reminderNotified === 'boolean' ? t.reminderNotified : false,
       archived: typeof t.archived === 'boolean' ? t.archived : false,
+      recurrence: (t.recurrence && RECURRENCE_UNITS.includes(t.recurrence.unit))
+        ? { unit: t.recurrence.unit, interval: Math.max(1, Math.floor(t.recurrence.interval || 1)) }
+        : null,
     })
   }
   return { tasks: validTasks }
@@ -230,6 +274,9 @@ function loadTasks() {
         reminder: typeof t.reminder === 'string' ? t.reminder : null,
         reminderNotified: typeof t.reminderNotified === 'boolean' ? t.reminderNotified : false,
         archived: typeof t.archived === 'boolean' ? t.archived : false,
+        recurrence: (t.recurrence && RECURRENCE_UNITS.includes(t.recurrence.unit))
+          ? { unit: t.recurrence.unit, interval: Math.max(1, Math.floor(t.recurrence.interval || 1)) }
+          : null,
       }))
   } catch {
     return []
@@ -263,6 +310,15 @@ function App() {
   const [activityTaskId, setActivityTaskId] = useState(null)
   const [reminder, setReminder] = useState('')
   const [editReminder, setEditReminder] = useState('')
+  const [recurrence, setRecurrence] = useState(null)        // null | { unit, interval }
+  const [editRecurrence, setEditRecurrence] = useState(null)
+  // Transient form state for the recurrence inputs (kept as strings for the <input>)
+  const [recUnit, setRecUnit] = useState('daily')
+  const [recInterval, setRecInterval] = useState('1')
+  const [recEnabled, setRecEnabled] = useState(false)
+  const [editRecUnit, setEditRecUnit] = useState('daily')
+  const [editRecInterval, setEditRecInterval] = useState('1')
+  const [editRecEnabled, setEditRecEnabled] = useState(false)
   const [notifications, setNotifications] = useState(() => loadNotifications())
   const [notifPanelOpen, setNotifPanelOpen] = useState(false)
   const [showArchive, setShowArchive] = useState(false)
@@ -339,9 +395,10 @@ function App() {
     const trimmed = input.trim()
     if (!trimmed) return
     const ts = Date.now()
+    const rec = recEnabled ? { unit: recUnit, interval: Math.max(1, Math.floor(Number(recInterval) || 1)) } : null
     setTasks(prev => [
       ...prev,
-      { id: nextId.current++, text: trimmed, completed: false, dueDate: dueDate || null, priority, category, createdAt: ts, subtasks: newSubtasks, activity: [makeActivity('Task created')], reminder: reminder || null, reminderNotified: false, archived: false },
+      { id: nextId.current++, text: trimmed, completed: false, dueDate: dueDate || null, priority, category, createdAt: ts, subtasks: newSubtasks, activity: [makeActivity('Task created')], reminder: reminder || null, reminderNotified: false, archived: false, recurrence: rec },
     ])
     setInput('')
     setDueDate('')
@@ -350,7 +407,11 @@ function App() {
     setNewSubtasks([])
     setSubtaskInput('')
     setReminder('')
-  }, [input, dueDate, priority, category, newSubtasks, reminder])
+    setRecEnabled(false)
+    setRecUnit('daily')
+    setRecInterval('1')
+    setRecurrence(null)
+  }, [input, dueDate, priority, category, newSubtasks, reminder, recEnabled, recUnit, recInterval])
 
   // ── Subtask handlers (add form) ─────────────────────
   const addNewSubtask = useCallback(() => {
@@ -376,20 +437,43 @@ function App() {
   )
 
   const toggleTask = useCallback(id => {
-    setTasks(prev =>
-      prev.map(task =>
-        task.id === id
+    setTasks(prev => {
+      const task = prev.find(t => t.id === id)
+      if (!task) return prev
+      const becomingCompleted = !task.completed
+      // Mark the task completed / reopened
+      const updated = prev.map(t =>
+        t.id === id
           ? {
-              ...task,
-              completed: !task.completed,
+              ...t,
+              completed: becomingCompleted,
               activity: [
-                makeActivity(task.completed ? 'Task reopened' : 'Task completed'),
-                ...(task.activity || []),
+                makeActivity(becomingCompleted ? 'Task completed' : 'Task reopened'),
+                ...(t.activity || []),
               ],
             }
-          : task
+          : t
       )
-    )
+      // If completing a non-archived recurring task, spawn next occurrence
+      if (!becomingCompleted || task.archived || !task.recurrence) return updated
+      const nextDue = calcNextDueDate(task.dueDate, task.recurrence.unit, task.recurrence.interval)
+      const newTask = {
+        id: nextId.current++,
+        text: task.text,
+        completed: false,
+        dueDate: nextDue,
+        priority: task.priority,
+        category: task.category,
+        createdAt: Date.now(),
+        subtasks: (task.subtasks || []).map(s => ({ ...s, id: nextSubId.current++, completed: false })),
+        activity: [makeActivity(`Recurring task created from previous occurrence`)],
+        reminder: null,
+        reminderNotified: false,
+        archived: false,
+        recurrence: task.recurrence,
+      }
+      return [...updated, newTask]
+    })
   }, [])
 
   const deleteTask = useCallback((id, text) => {
@@ -442,6 +526,11 @@ function App() {
     setEditSubtasks((task.subtasks || []).map(s => ({ ...s })))
     setEditSubtaskInput('')
     setEditReminder(task.reminder || '')
+    const rec = task.recurrence || null
+    setEditRecEnabled(!!rec)
+    setEditRecUnit(rec ? rec.unit : 'daily')
+    setEditRecInterval(rec ? String(rec.interval) : '1')
+    setEditRecurrence(rec)
   }, [])
 
   const saveEdit = useCallback(
@@ -466,6 +555,13 @@ function App() {
         const oldReminder = oldTask.reminder || null
         if (newReminder !== oldReminder)
           activities.push({ timestamp: ts, description: `Reminder ${newReminder ? 'set to ' + formatReminder(newReminder) : 'removed'}` })
+        const newRec = editRecEnabled
+          ? { unit: editRecUnit, interval: Math.max(1, Math.floor(Number(editRecInterval) || 1)) }
+          : null
+        const oldRec = oldTask.recurrence || null
+        const recChanged = JSON.stringify(newRec) !== JSON.stringify(oldRec)
+        if (recChanged)
+          activities.push({ timestamp: ts, description: newRec ? `Recurrence set to ${formatRecurrence(newRec)}` : 'Recurrence removed' })
         const oldSubs = oldTask.subtasks || []
         const newSubs = editSubtasks
         newSubs.forEach(ns => {
@@ -483,7 +579,7 @@ function App() {
         })
         return prev.map(task =>
           task.id === id
-            ? { ...task, text: trimmed, dueDate: editDueDate || null, priority: editPriority, category: editCategory, subtasks: editSubtasks, activity: [...activities, ...(task.activity || [])], reminder: newReminder, reminderNotified: newReminder !== oldReminder ? false : (oldTask.reminderNotified || false) }
+            ? { ...task, text: trimmed, dueDate: editDueDate || null, priority: editPriority, category: editCategory, subtasks: editSubtasks, activity: [...activities, ...(task.activity || [])], reminder: newReminder, reminderNotified: newReminder !== oldReminder ? false : (oldTask.reminderNotified || false), recurrence: newRec }
             : task
         )
       })
@@ -495,8 +591,12 @@ function App() {
       setEditSubtasks([])
       setEditSubtaskInput('')
       setEditReminder('')
+      setEditRecEnabled(false)
+      setEditRecUnit('daily')
+      setEditRecInterval('1')
+      setEditRecurrence(null)
     },
-    [editText, editDueDate, editPriority, editCategory, editSubtasks, editReminder]
+    [editText, editDueDate, editPriority, editCategory, editSubtasks, editReminder, editRecEnabled, editRecUnit, editRecInterval]
   )
 
   const cancelEdit = useCallback(() => {
@@ -508,6 +608,10 @@ function App() {
     setEditSubtasks([])
     setEditSubtaskInput('')
     setEditReminder('')
+    setEditRecEnabled(false)
+    setEditRecUnit('daily')
+    setEditRecInterval('1')
+    setEditRecurrence(null)
   }, [])
 
   // ── Subtask handlers (edit form) ────────────────────
@@ -874,6 +978,40 @@ function App() {
               Add
             </button>
           </div>
+          <div className="recurrence-row">
+            <label className="recurrence-row__label">
+              <input
+                type="checkbox"
+                className="recurrence-row__check"
+                checked={recEnabled}
+                onChange={e => setRecEnabled(e.target.checked)}
+                aria-label="Enable recurrence"
+              />
+              Repeat
+            </label>
+            {recEnabled && (
+              <>
+                <span className="recurrence-row__every">every</span>
+                <input
+                  className="task-input recurrence-row__interval"
+                  type="number"
+                  min="1"
+                  max="365"
+                  value={recInterval}
+                  onChange={e => setRecInterval(e.target.value)}
+                  aria-label="Recurrence interval"
+                />
+                <select
+                  className="task-input task-input--select recurrence-row__unit"
+                  value={recUnit}
+                  onChange={e => setRecUnit(e.target.value)}
+                  aria-label="Recurrence unit"
+                >
+                  {RECURRENCE_UNITS.map(u => <option key={u} value={u}>{u}</option>)}
+                </select>
+              </>
+            )}
+          </div>
           <div className="subtask-section">
             <div className="subtask-add-row">
               <input
@@ -1034,6 +1172,38 @@ function App() {
                         aria-label="Edit task reminder"
                       />
                       <div className="task-item__edit-actions">
+                        <label className="recurrence-row__label recurrence-row__label--inline">
+                          <input
+                            type="checkbox"
+                            className="recurrence-row__check"
+                            checked={editRecEnabled}
+                            onChange={e => setEditRecEnabled(e.target.checked)}
+                            aria-label="Enable recurrence"
+                          />
+                          Repeat
+                        </label>
+                        {editRecEnabled && (
+                          <>
+                            <span className="recurrence-row__every">every</span>
+                            <input
+                              className="task-input recurrence-row__interval"
+                              type="number"
+                              min="1"
+                              max="365"
+                              value={editRecInterval}
+                              onChange={e => setEditRecInterval(e.target.value)}
+                              aria-label="Recurrence interval"
+                            />
+                            <select
+                              className="task-input task-input--select recurrence-row__unit"
+                              value={editRecUnit}
+                              onChange={e => setEditRecUnit(e.target.value)}
+                              aria-label="Recurrence unit"
+                            >
+                              {RECURRENCE_UNITS.map(u => <option key={u} value={u}>{u}</option>)}
+                            </select>
+                          </>
+                        )}
                         <button
                           className="task-item__save"
                           onClick={() => saveEdit(task.id)}
@@ -1124,6 +1294,11 @@ function App() {
                             {task.subtasks && task.subtasks.length > 0 && (
                               <span className="task-item__subtask-count">
                                 {task.subtasks.filter(s => s.completed).length}/{task.subtasks.length} subtasks
+                              </span>
+                            )}
+                            {task.recurrence && (
+                              <span className="task-item__badge task-item__badge--recurrence" title={formatRecurrence(task.recurrence)}>
+                                🔁 {formatRecurrence(task.recurrence)}
                               </span>
                             )}
                           </div>
