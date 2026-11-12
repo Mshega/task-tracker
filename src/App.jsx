@@ -58,6 +58,7 @@ const SORT_OPTIONS = [
 ]
 const STORAGE_KEY = 'task-tracker-tasks'
 const NOTIF_KEY = 'task-tracker-notifications'
+const TEMPLATE_KEY = 'task-tracker-templates'
 
 function getTodayStr() {
   const d = new Date()
@@ -157,6 +158,37 @@ function loadNotifications() {
   }
 }
 
+function normalizeTemplate(t) {
+  return {
+    id: typeof t.id === 'number' ? t.id : Date.now() + Math.random(),
+    name: typeof t.name === 'string' ? t.name : 'Untitled template',
+    text: typeof t.text === 'string' ? t.text : '',
+    priority: PRIORITIES.includes(t.priority) ? t.priority : 'Medium',
+    category: CATEGORIES.includes(t.category) ? t.category : 'Other',
+    subtasks: Array.isArray(t.subtasks)
+      ? t.subtasks.filter(s => typeof s.text === 'string').map((s, i) => ({ id: i, text: s.text, completed: false }))
+      : [],
+    defaultDueDays: typeof t.defaultDueDays === 'number' ? t.defaultDueDays : null,
+    recurrence: (t.recurrence && RECURRENCE_UNITS.includes(t.recurrence.unit))
+      ? { unit: t.recurrence.unit, interval: Math.max(1, Math.floor(t.recurrence.interval || 1)) }
+      : null,
+  }
+}
+
+function loadTemplates() {
+  try {
+    const raw = localStorage.getItem(TEMPLATE_KEY)
+    if (!raw) return []
+    const parsed = JSON.parse(raw)
+    if (!Array.isArray(parsed)) return []
+    return parsed
+      .filter(t => typeof t.name === 'string' || typeof t.text === 'string')
+      .map(normalizeTemplate)
+  } catch {
+    return []
+  }
+}
+
 function validateImportData(raw) {
   let parsed
   try {
@@ -164,15 +196,25 @@ function validateImportData(raw) {
   } catch {
     return { error: 'Invalid JSON file. Please select a valid export file.' }
   }
-  if (!Array.isArray(parsed)) {
+  // Support both old format (bare array) and new format ({ tasks, templates })
+  let taskArray = parsed
+  let templateArray = []
+  if (!Array.isArray(parsed) && typeof parsed === 'object' && parsed !== null) {
+    if (!Array.isArray(parsed.tasks)) {
+      return { error: 'Invalid file format. Expected tasks array.' }
+    }
+    taskArray = parsed.tasks
+    templateArray = Array.isArray(parsed.templates) ? parsed.templates : []
+  }
+  if (!Array.isArray(taskArray)) {
     return { error: 'Invalid file format. Expected an array of tasks.' }
   }
-  if (parsed.length === 0) {
-    return { error: 'No tasks found in the file.' }
+  if (taskArray.length === 0 && templateArray.length === 0) {
+    return { error: 'No tasks or templates found in the file.' }
   }
   const validTasks = []
-  for (let i = 0; i < parsed.length; i++) {
-    const t = parsed[i]
+  for (let i = 0; i < taskArray.length; i++) {
+    const t = taskArray[i]
     if (typeof t !== 'object' || t === null) {
       return { error: `Item ${i + 1} is not a valid task object.` }
     }
@@ -206,7 +248,10 @@ function validateImportData(raw) {
         : null,
     })
   }
-  return { tasks: validTasks }
+  const validTemplates = templateArray
+    .filter(t => typeof t === 'object' && t !== null && (typeof t.name === 'string' || typeof t.text === 'string'))
+    .map(normalizeTemplate)
+  return { tasks: validTasks, templates: validTemplates }
 }
 
 function sortTasks(tasks, sortBy) {
@@ -322,12 +367,27 @@ function App() {
   const [notifications, setNotifications] = useState(() => loadNotifications())
   const [notifPanelOpen, setNotifPanelOpen] = useState(false)
   const [showArchive, setShowArchive] = useState(false)
+  const [templates, setTemplates] = useState(() => loadTemplates())
+  const [showTemplates, setShowTemplates] = useState(false)
+  // Template modal states
+  const [templateModal, setTemplateModal] = useState(null) // null | { mode: 'create'|'edit', template }
+  const [tmplName, setTmplName] = useState('')
+  const [tmplText, setTmplText] = useState('')
+  const [tmplPriority, setTmplPriority] = useState('Medium')
+  const [tmplCategory, setTmplCategory] = useState('Other')
+  const [tmplSubtasks, setTmplSubtasks] = useState([])
+  const [tmplSubInput, setTmplSubInput] = useState('')
+  const [tmplDueDays, setTmplDueDays] = useState('')
+  const [tmplRecEnabled, setTmplRecEnabled] = useState(false)
+  const [tmplRecUnit, setTmplRecUnit] = useState('daily')
+  const [tmplRecInterval, setTmplRecInterval] = useState('1')
 
   // useRef for the auto-increment ID so it never causes re-renders
   // and is not stale across closures the way a module-level let would be
   const nextId = useRef(1)
   const nextSubId = useRef(1)
   const fileInputRef = useRef(null)
+  const nextTemplateId = useRef(1)
   useEffect(() => {
     const saved = loadTasks()
     if (saved.length > 0) {
@@ -338,6 +398,10 @@ function App() {
         return Math.max(max, ...ids, 0)
       }, 0)
       nextSubId.current = maxSubId + 1
+    }
+    const savedTemplates = loadTemplates()
+    if (savedTemplates.length > 0) {
+      nextTemplateId.current = Math.max(...savedTemplates.map(t => typeof t.id === 'number' ? t.id : 0)) + 1
     }
   }, []) // runs once on mount to seed the ref from storage
 
@@ -350,6 +414,11 @@ function App() {
   useEffect(() => {
     localStorage.setItem(NOTIF_KEY, JSON.stringify(notifications))
   }, [notifications])
+
+  // Persist templates to localStorage
+  useEffect(() => {
+    localStorage.setItem(TEMPLATE_KEY, JSON.stringify(templates))
+  }, [templates])
 
   // ── Reminder checking (in-app only, not background) ──
   const tasksRef = useRef(tasks)
@@ -778,7 +847,8 @@ function App() {
 
   // ── Export & Import handlers ─────────────────────────
   const exportTasks = useCallback(() => {
-    const data = JSON.stringify(tasks, null, 2)
+    const exportData = { tasks, templates }
+    const data = JSON.stringify(exportData, null, 2)
     const blob = new Blob([data], { type: 'application/json' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
@@ -790,7 +860,7 @@ function App() {
     a.click()
     document.body.removeChild(a)
     URL.revokeObjectURL(url)
-  }, [tasks])
+  }, [tasks, templates])
 
   const handleImportClick = useCallback(() => {
     fileInputRef.current?.click()
@@ -847,7 +917,19 @@ function App() {
       })
       nextId.current = Math.max(nextId.current, ...usedIds, 0) + 1
       setTasks(prev => [...prev, ...newTasks])
-      window.alert(`Successfully imported ${newTasks.length} task(s).`)
+      // Also import templates if present in the file
+      const importedTemplates = result.templates || []
+      if (importedTemplates.length > 0) {
+        const existingTmplIds = new Set(templates.map(t => t.id))
+        const newTemplates = importedTemplates.map(t => {
+          if (existingTmplIds.has(t.id)) {
+            return { ...t, id: nextTemplateId.current++ }
+          }
+          return t
+        })
+        setTemplates(prev => [...prev, ...newTemplates])
+      }
+      window.alert(`Successfully imported ${newTasks.length} task(s)${importedTemplates.length > 0 ? ` and ${importedTemplates.length} template(s)` : ''}.`)
       e.target.value = ''
     }
     reader.onerror = () => {
@@ -855,8 +937,122 @@ function App() {
       e.target.value = ''
     }
     reader.readAsText(file)
-  }, [tasks])
+  }, [tasks, templates])
 
+  // ── Template helpers ─────────────────────────────────
+  const openTemplateCreate = useCallback(() => {
+    setTmplName('')
+    setTmplText('')
+    setTmplPriority('Medium')
+    setTmplCategory('Other')
+    setTmplSubtasks([])
+    setTmplSubInput('')
+    setTmplDueDays('')
+    setTmplRecEnabled(false)
+    setTmplRecUnit('daily')
+    setTmplRecInterval('1')
+    setTemplateModal({ mode: 'create', template: null })
+  }, [])
+
+  const openTemplateEdit = useCallback(tmpl => {
+    setTmplName(tmpl.name)
+    setTmplText(tmpl.text || '')
+    setTmplPriority(tmpl.priority || 'Medium')
+    setTmplCategory(tmpl.category || 'Other')
+    setTmplSubtasks((tmpl.subtasks || []).map(s => ({ ...s })))
+    setTmplSubInput('')
+    setTmplDueDays(tmpl.defaultDueDays !== null && tmpl.defaultDueDays !== undefined ? String(tmpl.defaultDueDays) : '')
+    const rec = tmpl.recurrence || null
+    setTmplRecEnabled(!!rec)
+    setTmplRecUnit(rec ? rec.unit : 'daily')
+    setTmplRecInterval(rec ? String(rec.interval) : '1')
+    setTemplateModal({ mode: 'edit', template: tmpl })
+  }, [])
+
+  const closeTemplateModal = useCallback(() => {
+    setTemplateModal(null)
+  }, [])
+
+  const saveTemplateModal = useCallback(() => {
+    const name = tmplName.trim() || 'Untitled template'
+    const rec = tmplRecEnabled
+      ? { unit: tmplRecUnit, interval: Math.max(1, Math.floor(Number(tmplRecInterval) || 1)) }
+      : null
+    const dueDays = tmplDueDays.trim() !== '' ? Math.max(0, Math.floor(Number(tmplDueDays) || 0)) : null
+    const subtasks = tmplSubtasks.map((s, i) => ({ id: i, text: s.text, completed: false }))
+    if (templateModal.mode === 'create') {
+      const newTmpl = { id: nextTemplateId.current++, name, text: tmplText, priority: tmplPriority, category: tmplCategory, subtasks, defaultDueDays: dueDays, recurrence: rec }
+      setTemplates(prev => [...prev, newTmpl])
+    } else {
+      setTemplates(prev => prev.map(t => t.id === templateModal.template.id
+        ? { ...t, name, text: tmplText, priority: tmplPriority, category: tmplCategory, subtasks, defaultDueDays: dueDays, recurrence: rec }
+        : t))
+    }
+    setTemplateModal(null)
+  }, [templateModal, tmplName, tmplText, tmplPriority, tmplCategory, tmplSubtasks, tmplDueDays, tmplRecEnabled, tmplRecUnit, tmplRecInterval])
+
+  const deleteTemplate = useCallback((id, name) => {
+    if (!window.confirm(`Delete template "${name}"?`)) return
+    setTemplates(prev => prev.filter(t => t.id !== id))
+  }, [])
+
+  const saveTaskAsTemplate = useCallback(task => {
+    const name = window.prompt('Template name:', task.text)
+    if (name === null) return // cancelled
+    const subtasks = (task.subtasks || []).map((s, i) => ({ id: i, text: s.text, completed: false }))
+    const newTmpl = {
+      id: nextTemplateId.current++,
+      name: name.trim() || task.text,
+      text: task.text,
+      priority: task.priority || 'Medium',
+      category: task.category || 'Other',
+      subtasks,
+      defaultDueDays: null,
+      recurrence: task.recurrence || null,
+    }
+    setTemplates(prev => [...prev, newTmpl])
+  }, [])
+
+  const useTemplate = useCallback(tmpl => {
+    // Calculate due date if defaultDueDays is set
+    let dueDate = null
+    if (typeof tmpl.defaultDueDays === 'number' && tmpl.defaultDueDays >= 0) {
+      const d = new Date()
+      d.setDate(d.getDate() + tmpl.defaultDueDays)
+      dueDate = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+    }
+    const subtasks = (tmpl.subtasks || []).map(s => ({ id: nextSubId.current++, text: s.text, completed: false }))
+    const newTask = {
+      id: nextId.current++,
+      text: tmpl.text || tmpl.name,
+      completed: false,
+      dueDate,
+      priority: tmpl.priority || 'Medium',
+      category: tmpl.category || 'Other',
+      createdAt: Date.now(),
+      subtasks,
+      activity: [makeActivity(`Task created from template "${tmpl.name}"`)],
+      reminder: null,
+      reminderNotified: false,
+      archived: false,
+      recurrence: tmpl.recurrence || null,
+    }
+    setTasks(prev => [...prev, newTask])
+  }, [])
+
+  // Template subtask helpers
+  const addTmplSubtask = useCallback(() => {
+    const trimmed = tmplSubInput.trim()
+    if (!trimmed) return
+    setTmplSubtasks(prev => [...prev, { id: prev.length, text: trimmed, completed: false }])
+    setTmplSubInput('')
+  }, [tmplSubInput])
+
+  const deleteTmplSubtask = useCallback(idx => {
+    setTmplSubtasks(prev => prev.filter((_, i) => i !== idx))
+  }, [])
+
+  // Update handleFileSelect to also import templates
   const filteredTasks = tasks.filter(task => {
     if (task.archived) return false
     if (filter === 'Pending' && task.completed) return false
@@ -1332,6 +1528,13 @@ function App() {
                       >
                         📦
                       </button>
+                      <button
+                        className="task-item__save-tmpl"
+                        onClick={() => saveTaskAsTemplate(task)}
+                        aria-label={`Save task "${task.text}" as template`}
+                      >
+                        📋
+                      </button>
                       {sortBy === 'manual' && (
                         <div className="task-item__move-buttons">
                           <button
@@ -1494,6 +1697,52 @@ function App() {
           />
         </section>
 
+        <section className="templates-section" aria-label="Task templates">
+          <div className="templates-section__header">
+            <button
+              className="archive-section__toggle"
+              onClick={() => setShowTemplates(prev => !prev)}
+              aria-expanded={showTemplates}
+            >
+              Templates ({templates.length}) {showTemplates ? '▲' : '▼'}
+            </button>
+            <button className="templates-section__new" onClick={openTemplateCreate} aria-label="Create new template">+ New template</button>
+          </div>
+          {showTemplates && (
+            templates.length === 0 ? (
+              <div className="templates-section__empty">No templates yet. Save a task as a template or create one from scratch.</div>
+            ) : (
+              <ul className="templates-list">
+                {templates.map(tmpl => (
+                  <li key={tmpl.id} className="template-item">
+                    <div className="template-item__info">
+                      <span className="template-item__name">{tmpl.name}</span>
+                      <div className="template-item__meta">
+                        <span className={`task-item__badge task-item__badge--priority-${(tmpl.priority || 'Medium').toLowerCase()}`}>{tmpl.priority || 'Medium'}</span>
+                        <span className={`task-item__badge task-item__badge--category-${(tmpl.category || 'Other').toLowerCase()}`}>{tmpl.category || 'Other'}</span>
+                        {tmpl.subtasks && tmpl.subtasks.length > 0 && (
+                          <span className="task-item__subtask-count">{tmpl.subtasks.length} subtask{tmpl.subtasks.length !== 1 ? 's' : ''}</span>
+                        )}
+                        {tmpl.defaultDueDays !== null && tmpl.defaultDueDays !== undefined && (
+                          <span className="template-item__due-hint">Due in {tmpl.defaultDueDays}d</span>
+                        )}
+                        {tmpl.recurrence && (
+                          <span className="task-item__badge task-item__badge--recurrence">🔁 {formatRecurrence(tmpl.recurrence)}</span>
+                        )}
+                      </div>
+                    </div>
+                    <div className="template-item__actions">
+                      <button className="template-item__use" onClick={() => useTemplate(tmpl)} aria-label={`Use template "${tmpl.name}"`}>Use</button>
+                      <button className="template-item__edit" onClick={() => openTemplateEdit(tmpl)} aria-label={`Edit template "${tmpl.name}"`}>✎</button>
+                      <button className="template-item__delete" onClick={() => deleteTemplate(tmpl.id, tmpl.name)} aria-label={`Delete template "${tmpl.name}"`}>✕</button>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )
+          )}
+        </section>
+
         {activityTask && (
           <div className="activity-modal-overlay" onClick={() => setActivityTaskId(null)}>
             <div
@@ -1527,6 +1776,75 @@ function App() {
                   ))}
                 </ul>
               )}
+            </div>
+          </div>
+        )}
+
+        {templateModal && (
+          <div className="activity-modal-overlay" onClick={closeTemplateModal}>
+            <div className="activity-modal template-modal" onClick={e => e.stopPropagation()} role="dialog" aria-label="Template editor">
+              <div className="activity-modal__header">
+                <h2 className="activity-modal__title">{templateModal.mode === 'create' ? 'New Template' : 'Edit Template'}</h2>
+                <button className="activity-modal__close" onClick={closeTemplateModal} aria-label="Close">✕</button>
+              </div>
+              <div className="template-modal__body">
+                <label className="template-modal__label">Template name</label>
+                <input className="task-input" type="text" placeholder="Template name" value={tmplName} onChange={e => setTmplName(e.target.value)} />
+                <label className="template-modal__label">Task title</label>
+                <input className="task-input" type="text" placeholder="Task title" value={tmplText} onChange={e => setTmplText(e.target.value)} />
+                <div className="template-modal__row">
+                  <div className="template-modal__field">
+                    <label className="template-modal__label">Priority</label>
+                    <select className="task-input task-input--select" value={tmplPriority} onChange={e => setTmplPriority(e.target.value)}>
+                      {PRIORITIES.map(p => <option key={p} value={p}>{p}</option>)}
+                    </select>
+                  </div>
+                  <div className="template-modal__field">
+                    <label className="template-modal__label">Category</label>
+                    <select className="task-input task-input--select" value={tmplCategory} onChange={e => setTmplCategory(e.target.value)}>
+                      {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                    </select>
+                  </div>
+                  <div className="template-modal__field">
+                    <label className="template-modal__label">Due in (days)</label>
+                    <input className="task-input" type="number" min="0" placeholder="optional" value={tmplDueDays} onChange={e => setTmplDueDays(e.target.value)} />
+                  </div>
+                </div>
+                <div className="recurrence-row" style={{ marginTop: 0 }}>
+                  <label className="recurrence-row__label">
+                    <input type="checkbox" className="recurrence-row__check" checked={tmplRecEnabled} onChange={e => setTmplRecEnabled(e.target.checked)} />
+                    Repeat
+                  </label>
+                  {tmplRecEnabled && (
+                    <>
+                      <span className="recurrence-row__every">every</span>
+                      <input className="task-input recurrence-row__interval" type="number" min="1" max="365" value={tmplRecInterval} onChange={e => setTmplRecInterval(e.target.value)} />
+                      <select className="task-input task-input--select recurrence-row__unit" value={tmplRecUnit} onChange={e => setTmplRecUnit(e.target.value)}>
+                        {RECURRENCE_UNITS.map(u => <option key={u} value={u}>{u}</option>)}
+                      </select>
+                    </>
+                  )}
+                </div>
+                <label className="template-modal__label">Subtasks</label>
+                <div className="subtask-add-row">
+                  <input className="task-input subtask-input" type="text" placeholder="Add subtask..." value={tmplSubInput} onChange={e => setTmplSubInput(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addTmplSubtask() } }} />
+                  <button className="subtask-add-btn" onClick={addTmplSubtask}>+</button>
+                </div>
+                {tmplSubtasks.length > 0 && (
+                  <ul className="subtask-list" style={{ marginTop: 6 }}>
+                    {tmplSubtasks.map((s, i) => (
+                      <li key={i} className="subtask">
+                        <span className="subtask__text" style={{ flex: 1 }}>{s.text}</span>
+                        <button className="subtask__delete" onClick={() => deleteTmplSubtask(i)}>✕</button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+              <div className="template-modal__footer">
+                <button className="task-item__save" onClick={saveTemplateModal} disabled={!tmplName.trim() && !tmplText.trim()}>Save template</button>
+                <button className="task-item__cancel" onClick={closeTemplateModal}>Cancel</button>
+              </div>
             </div>
           </div>
         )}
